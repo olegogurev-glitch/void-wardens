@@ -1,7 +1,12 @@
 // DOM HUD: top stats, tower dock, tower panel with upgrade choices, banners, overlays.
-import { TOWERS, TOWER_ORDER, ENEMIES, START_LIVES, SELL_RATIO, WORLD_W, towerStats, upgradeOptions, pathNames, waveHpMult } from './config.js';
+import { TOWERS, TOWER_ORDER, ENEMIES, START_LIVES, SELL_RATIO, WORLD_W, ABILITIES, ABILITY_ORDER, towerStats, upgradeOptions, pathNames, waveHpMult } from './config.js';
 import { drawTower } from './render.js';
 import { TARGET_MODES } from './game.js';
+
+const ABILITY_ICONS = {
+  firewall: '<svg viewBox="0 0 24 24" width="28" height="28"><path d="M4 6h16M4 12h16M4 18h16M8 6v6M16 6v6M12 12v6M6 18v0" stroke="currentColor" stroke-width="2" fill="none"/><rect x="3" y="3" width="18" height="18" stroke="currentColor" stroke-width="1" fill="none" opacity=".4"/></svg>',
+  purge: '<svg viewBox="0 0 24 24" width="28" height="28"><path d="M13 2L5 14h6l-2 8 9-13h-6z" fill="currentColor"/><circle cx="12" cy="12" r="10.5" stroke="currentColor" stroke-width="1" fill="none" opacity=".4"/></svg>',
+};
 
 const TARGET_HINTS = {
   first: 'Furthest along the path',
@@ -39,6 +44,9 @@ export function statTags(s) {
   if (s.cluster) t.push(`Cluster ×${s.cluster}`);
   if (s.burn) t.push(`Burn ${s.burn}/s`);
   if (s.pierceArmor) t.push('Ignores armor');
+  if (s.spinUp) t.push(`Spin-up +${Math.round(s.spinUp * 100)}% rate`);
+  if (s.echo) t.push(`Echo strike ${Math.round(s.echo * 100)}%`);
+  if (s.hail) t.push(`Hail ×${s.hail}`);
   return t;
 }
 
@@ -104,6 +112,52 @@ export class UI {
       this.els.dock.appendChild(btn);
       this.cards[type] = btn;
     });
+
+    // abilities, after a divider
+    const sep = document.createElement('span');
+    sep.className = 'dock-sep';
+    this.els.dock.appendChild(sep);
+    this.abilityBtns = {};
+    for (const id of ABILITY_ORDER) {
+      const a = ABILITIES[id];
+      const btn = document.createElement('button');
+      btn.className = 'ability hudbox';
+      btn.style.setProperty('--c', a.color);
+      btn.innerHTML = `<span class="key">${a.key}</span><span class="ab-icon">${ABILITY_ICONS[id]}</span>
+        <span class="info"><span class="name">${a.name}</span><span class="ab-cd">Ready</span></span><span class="ab-sweep"></span>`;
+      btn.addEventListener('click', () => this.ctl.ability(id));
+      btn.addEventListener('mouseenter', () => this.showTipHtml(btn, a.color,
+        `<div class="t-name">${a.name}</div><div class="t-desc">${a.desc}</div><div class="t-hint">Cooldown ${a.cooldown}s · key ${a.key}</div>`));
+      btn.addEventListener('mouseleave', () => (this.els.tooltip.hidden = true));
+      this.els.dock.appendChild(btn);
+      this.abilityBtns[id] = btn;
+    }
+  }
+
+  showTipHtml(btn, color, html) {
+    const tip = this.els.tooltip;
+    tip.style.setProperty('--c', color);
+    tip.innerHTML = html;
+    tip.hidden = false;
+    const r = btn.getBoundingClientRect();
+    tip.style.left = clamp(r.left + r.width / 2 - tip.offsetWidth / 2, 8, window.innerWidth - tip.offsetWidth - 8) + 'px';
+    tip.style.top = r.top - tip.offsetHeight - 10 + 'px';
+  }
+
+  updateAbilities() {
+    const g = this.game, v = this.view;
+    for (const id of ABILITY_ORDER) {
+      const btn = this.abilityBtns[id];
+      const left = g.cooldowns[id], cd = ABILITIES[id].cooldown;
+      const key = `${Math.ceil(left)}|${v.ability === id}|${v.started && !g.over}`;
+      if (btn._key === key) continue;
+      btn._key = key;
+      const ready = left <= 0;
+      btn.style.setProperty('--cd', ready ? 0 : left / cd);
+      btn.classList.toggle('ready', ready && v.started && !g.over);
+      btn.classList.toggle('active', v.ability === id);
+      btn.querySelector('.ab-cd').textContent = v.ability === id ? 'Click the bus' : ready ? 'Ready' : `${Math.ceil(left)}s`;
+    }
   }
 
   showTip(btn, type) {
@@ -179,6 +233,7 @@ export class UI {
       e.livesStat.classList.toggle('low', g.lives <= START_LIVES * 0.3);
       this.prev.lives = g.lives;
     }
+    this.updateAbilities();
     if (v.placing !== this.prev.placing) {
       for (const type of TOWER_ORDER) this.cards[type].classList.toggle('active', v.placing === type);
       this.prev.placing = v.placing;

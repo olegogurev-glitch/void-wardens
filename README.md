@@ -49,8 +49,15 @@ The start screen is a sector select. It remembers your best result per sector in
 | `T` | Cycle targeting: First / Last / Strong / Close (not shown for area towers) |
 | `S` ×2 | Sell the selected tower (70% refund). The first press arms it, the second confirms within 2.5s |
 | `Space` | Run the next wave. Calling it early earns +3 credits per second skipped. The next wave's makeup is previewed above the button |
+| `Z` / `X` | Abilities: **Firewall** (then click the bus) · **System Purge** |
 | `F` / `P` / `M` / `N` | Speed 1×/2×/3× · Pause · Mute all · Music on/off |
 | Right-click / `Esc` | Cancel placing or deselect |
+
+**Abilities.** Both start ready, and their cooldowns run on game time. Tune them in `ABILITIES` in `src/config.js`.
+- **Firewall** (40s cooldown): drop a barrier anywhere on a data bus. It holds malware back for 5s and burns whatever presses against it. Bosses smash through after 1.5s.
+- **System Purge** (75s cooldown): hits every enemy for 15% of max HP (bosses 4%), stuns them for 1s, reveals Rootkits and strips Cipher shields.
+
+**Reduced motion.** If the OS "reduce motion" setting is on, screen shake, glitch slices, flashes and enemy jitter are toned down, and the glitch title and banner animations are calmed.
 
 **Music.** Procedural synthwave from `src/music.js`. It plays calm pads between waves, adds drums once a wave runs, and goes four-on-the-floor while the boss is alive.
 
@@ -60,9 +67,9 @@ Each tower has 3 levels. Level 2 is a choice between two branches. Level 3 is a 
 
 | Tower | Lv 2: Branch A → Lv 3 options | Lv 2: Branch B → Lv 3 options |
 |---|---|---|
-| **Photon Blaster** (50) | Overcharge → **Railgun** (piercing beam) / **Fragment Rounds** (explosive) | Twin Barrels → **Gatling Array** (bullet storm) / **Scatter Array** (3 targets) |
-| **ICE Node** (70) | Deep Freeze → **Absolute Zero** (freeze solid) / **Shatter** (+40% dmg taken) | Wide Field → **Rollback** (pushes enemies back) / **Frost Storm** (2× pulses) |
-| **Arc Relay** (90) | Conductor → **Tempest** (9 chains) / **Overload** (stun) | High Voltage → **EMP Burst** (hits all in range) / **Static Field** (slow) |
+| **Photon Blaster** (50) | Overcharge → **Railgun** (piercing beam) / **Fragment Rounds** (explosive) | Twin Barrels → **Gatling Array** (spins up, faster the longer it fires) / **Scatter Array** (3 targets) |
+| **ICE Node** (70) | Deep Freeze → **Absolute Zero** (freeze solid) / **Shatter** (+40% dmg taken) | Wide Field → **Rollback** (pushes enemies back) / **Hailstorm** (faster pulses + 3 ice shards) |
+| **Arc Relay** (90) | Conductor → **Tempest** (9 chains, then a 50% echo strike) / **Overload** (stun) | High Voltage → **EMP Burst** (hits all in range) / **Static Field** (slow) |
 | **Daemon Launcher** (120) | Warheads → **Zero-Day** (huge blasts) / **Cluster Bombs** | Salvo Pods → **Botnet** (6 missiles) / **Corruption** (burning sectors) |
 
 Armor creates real trade-offs. Trojans subtract 3 from every hit and the boss subtracts 6, so fast low-damage builds (Gatling) shred Glitches but struggle against armor. Heavy hits, armor-piercing lightning and burn damage do the opposite.

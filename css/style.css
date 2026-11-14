@@ -148,6 +148,28 @@ kbd {
 .card.disabled { opacity: .4; filter: saturate(.3); }
 .card.disabled .cost { color: var(--hot); }
 
+.dock-sep { width: 1px; align-self: stretch; margin: 6px 4px; background: linear-gradient(transparent, var(--line-2), transparent); }
+.ability {
+  --fill: linear-gradient(180deg, rgba(8, 16, 28, .9), rgba(4, 8, 15, .9));
+  --cd: 0;
+  position: relative; display: flex; align-items: center; gap: 8px; padding: 5px 14px 5px 10px; min-width: 150px; overflow: hidden;
+  color: var(--c); transition: transform .14s, box-shadow .14s;
+}
+.ability .ab-icon { display: grid; place-items: center; width: 40px; height: 40px; filter: drop-shadow(0 0 6px var(--c)); }
+.ability .info { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; color: var(--text); }
+.ability .name { font-weight: 600; font-size: 13px; letter-spacing: .04em; text-transform: uppercase; }
+.ability .ab-cd { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.ability .key { position: absolute; top: 5px; right: 8px; font-family: var(--mono); font-size: 10px; color: var(--muted); }
+.ability .ab-sweep {
+  position: absolute; inset: 0; pointer-events: none;
+  background: conic-gradient(rgba(2, 4, 9, .72) calc(var(--cd) * 360deg), transparent 0);
+}
+.ability.ready .ab-cd { color: var(--c); }
+.ability.ready { box-shadow: inset 0 0 16px -8px var(--c); }
+.ability.ready:hover { transform: translateY(-3px); box-shadow: 0 10px 26px -14px var(--c), inset 0 0 18px -8px var(--c); }
+.ability.active { --bl: 14px; border-color: var(--c); box-shadow: 0 0 26px -8px var(--c), inset 0 0 18px -8px var(--c); }
+.ability:not(.ready):not(.active) .ab-icon { opacity: .45; filter: none; }
+
 /* ── Tooltip ─────────────────────────────────────── */
 .tooltip { position: fixed; z-index: 50; width: 264px; padding: 12px 14px; pointer-events: none; box-shadow: 0 16px 40px rgba(0, 0, 0, .6); backdrop-filter: blur(10px); }
 .t-name { font-weight: 700; font-size: 14px; letter-spacing: .1em; text-transform: uppercase; color: var(--c); }
@@ -366,6 +388,13 @@ kbd {
 .btn-ghost { margin-top: 10px; padding: 8px 24px; font-family: var(--mono); letter-spacing: .14em; text-transform: uppercase; font-size: 11px; color: var(--muted); border: 1px solid var(--line); }
 .btn-ghost:hover { color: var(--text); border-color: var(--line-2); }
 
+/* ── Medium screens: keep the dock on one row ─────── */
+@media (max-width: 1180px) {
+  .card { min-width: 0; padding-right: 12px; }
+  .ability { min-width: 0; }
+  .ability .name { display: none; }
+}
+
 /* ── Small screens ───────────────────────────────── */
 @media (max-width: 760px) {
   .hud { gap: 8px; padding: 6px 10px; }
@@ -381,6 +410,8 @@ kbd {
   .card { min-width: 0; padding: 4px 8px 4px 4px; flex: 1 1 0; flex-direction: column; gap: 0; }
   .card canvas { width: 42px; height: 42px; }
   .card .name, .card .key { display: none; }
+  .ability { min-width: 0; padding: 4px; flex: 0 0 auto; }
+  .ability .info, .ability .key, .dock-sep { display: none; }
   .panel { left: 6px !important; right: 6px; top: auto !important; bottom: 6px; width: auto; max-height: 72%; }
   .wave-cta { bottom: 8px; }
   .cta { padding: 8px 14px; font-size: 11px; }
@@ -391,4 +422,13 @@ kbd {
   .ov-title { font-size: 34px; }
   .ov-tag, .ov-help { display: none; }
   .nw-item em, .nw-hp { display: none; }
+}
+
+/* ── Reduced motion ──────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .glitch::before, .glitch::after { display: none; }
+  .brand-mark::after, .cta-info .dot, .p-sell.armed, .cta.pulse { animation: none; }
+  .banner.show { animation: banner-calm 2.4s ease-out forwards; }
+  @keyframes banner-calm { 0% { opacity: 0; } 10%, 75% { opacity: 1; } 100% { opacity: 0; } }
+  .card, .upg, .cta, .btn-primary, .sector, .ability { transition: none; }
 }

@@ -2,7 +2,7 @@
 // and sounds are requested through the 'sfx' event.
 import {
   TILE, WORLD_W, WORLD_H, ENEMIES, TOWERS,
-  START_CREDITS, START_LIVES, BREAK_TIME, SELL_RATIO, EARLY_BONUS_PER_SEC,
+  ABILITIES, START_CREDITS, START_LIVES, BREAK_TIME, SELL_RATIO, EARLY_BONUS_PER_SEC,
   waveHpMult, waveClearBonus, towerStats, upgradeOptions,
 } from './config.js';
 import { FX } from './fx.js';
@@ -42,6 +42,8 @@ export class Game {
     this.wave = 0;
     this.totalWaves = this.waves.length;
     this.spawnLater = [];
+    this.firewalls = [];
+    this.cooldowns = { firewall: 0, purge: 0 }; // seconds until each ability is ready
     this.state = 'ready'; // ready → wave → break → wave … → won | lost
     this.time = 0;
     this.waveTime = 0;
@@ -124,6 +126,7 @@ export class Game {
     this.updateTowers(dt);
     this.updateProjectiles(dt);
     this.updateZones(dt);
+    this.updateAbilities(dt);
 
     // enemies created mid-tick (worm fragments) join once iteration is done
     if (this.spawnLater.length) {
@@ -181,10 +184,20 @@ export class Game {
       if (e.freezeT > 0) { e.freezeT -= dt; mult = 0; }
       if (e.stunT > 0) { e.stunT -= dt; mult = 0; }
       const ease = Math.min(1, e.age / 0.4);
+      const prevD = e.d;
       e.d += e.speed * mult * dt * (0.4 + 0.6 * ease);
 
       const path = this.map.paths[e.path];
-      const p = path.posAt(e.d, e.lane);
+      let p = path.posAt(e.d, e.lane);
+      // Firewalls stop anything advancing into them (moving away from one is allowed)
+      if (this.firewalls.length && e.d > prevD) {
+        const fw = this.blockingFirewall(e, p);
+        if (fw) {
+          e.d = prevD;
+          p = path.posAt(e.d, e.lane);
+          if (this.pressFirewall(fw, e, dt)) continue;
+        }
+      }
       e.x = p.x; e.y = p.y;
       e.angle = turnTowards(e.angle, p.angle, dt * 10);
 
@@ -350,6 +363,104 @@ export class Game {
     }
   }
 
+  // ── Player abilities ─────────────────────────────────────
+  abilityReady(id) { return !this.over && this.cooldowns[id] <= 0; }
+
+  updateAbilities(dt) {
+    for (const id in this.cooldowns) this.cooldowns[id] = Math.max(0, this.cooldowns[id] - dt);
+    let k = 0;
+    for (const fw of this.firewalls) {
+      fw.t -= dt;
+      if (fw.t <= 0) { this.firewallDown(fw, false); continue; }
+      if (Math.random() < 0.4) {
+        const o = rand(-16, 16);
+        this.fx.add({ kind: 'glow', x: fw.x - Math.sin(fw.angle) * o, y: fw.y + Math.cos(fw.angle) * o, vx: 0, vy: -rand(15, 40), life: 0.4, size: 2.5, color: ABILITIES.firewall.color, drag: 0 });
+      }
+      this.firewalls[k++] = fw;
+    }
+    this.firewalls.length = k;
+  }
+
+  // Nearest point on any data bus within maxDist of (x, y), or null
+  snapToBus(x, y, maxDist = 24) {
+    let best = null, bd = maxDist;
+    for (const path of this.map.paths) {
+      for (const s of path.segs) {
+        const px = x - s.x0, py = y - s.y0;
+        const along = Math.max(0, Math.min(s.len, px * s.ux + py * s.uy));
+        const cx = s.x0 + s.ux * along, cy = s.y0 + s.uy * along;
+        const d = Math.hypot(x - cx, y - cy);
+        if (d < bd) { bd = d; best = { x: cx, y: cy, angle: s.angle }; }
+      }
+    }
+    return best;
+  }
+
+  useFirewall(x, y) {
+    if (!this.abilityReady('firewall')) return false;
+    const spot = this.snapToBus(x, y);
+    if (!spot) return false;
+    const def = ABILITIES.firewall;
+    this.firewalls.push({ ...spot, t: def.duration, max: def.duration, bossT: def.bossHold, dps: def.dps });
+    this.cooldowns.firewall = def.cooldown;
+    this.fx.ring(spot.x, spot.y, 4, 40, 0.4, def.color, 3);
+    this.fx.burst(spot.x, spot.y, def.color, 24, 200, 3, 0.5);
+    this.fx.shake(2);
+    this.sfx('firewall');
+    return true;
+  }
+
+  blockingFirewall(e, p) {
+    for (const fw of this.firewalls) {
+      const now = Math.hypot(p.x - fw.x, p.y - fw.y);
+      if (now < e.radius + 9 && now < Math.hypot(e.x - fw.x, e.y - fw.y)) return fw;
+    }
+    return null;
+  }
+
+  // An enemy pushing on a firewall: it burns (ignoring armor/shields); bosses grind the wall down.
+  // Returns true if the enemy died.
+  pressFirewall(fw, e, dt) {
+    if (e.def.boss) {
+      fw.bossT -= dt;
+      if (fw.bossT <= 0) { this.firewallDown(fw, true); return false; }
+    }
+    if (Math.random() < 0.15) this.fx.burst(e.x, e.y, ABILITIES.firewall.color, 2, 90, 1.5, 0.2, 'spark', 4);
+    e.hp -= fw.dps * dt * (1 + e.vulnAmt);
+    if (e.hp <= 0) { this.kill(e); return true; }
+    return false;
+  }
+
+  firewallDown(fw, smashed) {
+    fw.t = 0;
+    this.firewalls = this.firewalls.filter((o) => o !== fw);
+    const col = ABILITIES.firewall.color;
+    this.fx.burst(fw.x, fw.y, col, smashed ? 30 : 14, smashed ? 260 : 120, 3, 0.5, smashed ? 'debris' : 'glow', 2);
+    if (smashed) { this.fx.shake(6); this.sfx('firewallDown'); }
+  }
+
+  usePurge() {
+    if (!this.abilityReady('purge') || !this.enemies.length) return false;
+    const def = ABILITIES.purge, C = this.map.core, fx = this.fx;
+    let i = 0;
+    for (const e of this.enemies) {
+      if (e.dead || e.leaked) continue;
+      if (e.def.shield) { e.shieldUp = false; e.shieldT = e.def.shield; }
+      if (e.def.stealth) e.revealT = Math.max(e.revealT, def.reveal);
+      e.stunT = Math.max(e.stunT, def.stun * (e.def.ccResist ?? 1));
+      if (i++ < 18) fx.lightning([{ x: C.x, y: C.y }, { x: e.x, y: e.y }], def.color, 1.6, 0.35);
+      fx.burst(e.x, e.y, def.color, 6, 120, 2, 0.35, 'spark', 4);
+      this.hurt(e, e.maxHp * (e.def.boss ? def.bossPct : def.pct), null, true, true);
+    }
+    this.cooldowns.purge = def.cooldown;
+    fx.ring(C.x, C.y, 20, 1500, 1.1, def.color, 6);
+    fx.ring(C.x, C.y, 20, 900, 0.8, '#ffffff', 3);
+    fx.flash('255,190,60', 0.35);
+    fx.shake(12);
+    this.sfx('purge');
+    return true;
+  }
+
   // ── Towers ───────────────────────────────────────────────
   towerAt(c, r) { return this.grid.get(c + ',' + r) || null; }
 
@@ -366,7 +477,7 @@ export class Game {
       path: [], level: 1, stats: towerStats(type, []),
       cooldown: 0.25, angle: -Math.PI / 2, target: null, recoil: 0, barrel: 0, spin: 0,
       spawnT: 0, invested: def.cost, dealt: 0, kills: 0, upgradeFlash: 0,
-      targeting: 'first',
+      targeting: 'first', heat: 0,
     };
     this.towers.push(t);
     this.grid.set(c + ',' + r, t);
@@ -485,7 +596,9 @@ export class Game {
       t.spawnT = Math.min(1, t.spawnT + dt * 3);
       t.recoil = Math.max(0, t.recoil - dt * 6);
       t.upgradeFlash = Math.max(0, t.upgradeFlash - dt * 1.5);
-      if (s.gatling) t.spin += dt * (t.target ? 28 : 3);
+      // Gatling heat: spins up over ~2.5s of continuous fire, cools in ~1.2s
+      if (s.spinUp) t.heat = t.target ? Math.min(1, t.heat + dt / 2.5) : Math.max(0, t.heat - dt / 1.2);
+      if (s.gatling) t.spin += dt * (t.target ? 18 + 22 * t.heat : 3);
       t.cooldown -= dt;
 
       // area towers (ICE pulse, EMP) trigger on anything in range, cloaked or not
@@ -497,10 +610,41 @@ export class Game {
         t.angle = turnTowards(t.angle, Math.atan2(target.y - t.y, target.x - t.x), dt * 12);
       }
       if (t.cooldown <= 0) {
-        if (target) { this.fire(t, target); t.cooldown += 1 / s.rate; }
+        if (target) { this.fire(t, target); t.cooldown += 1 / (s.rate * (1 + s.spinUp * t.heat)); }
         else t.cooldown = 0;
       }
     }
+  }
+
+  // Chain lightning from an Arc Relay; mult scales damage (Tempest echo uses 0.5)
+  chainStrike(t, target, mult) {
+    const s = t.stats, fx = this.fx;
+    const hits = [target];
+    let cur = target;
+    const cr2 = s.chainRange * s.chainRange;
+    while (hits.length < s.chains) {
+      let best = null, bd = cr2;
+      for (const e of this.enemies) {
+        if (e.dead || hits.includes(e) || !this.visible(e)) continue;
+        const d2 = (e.x - cur.x) ** 2 + (e.y - cur.y) ** 2;
+        if (d2 < bd) { bd = d2; best = e; }
+      }
+      if (!best) break;
+      hits.push(best);
+      cur = best;
+    }
+    const pts = [{ x: t.x, y: t.y - 22 }];
+    let dmg = s.damage * mult;
+    for (const e of hits) {
+      pts.push({ x: e.x, y: e.y });
+      this.hurt(e, dmg, t, s.pierceArmor);
+      this.applyStatus(e, s);
+      fx.burst(e.x, e.y, s.color, 5, 120, 2, 0.25, 'spark', 4);
+      dmg *= s.chainFalloff;
+    }
+    fx.lightning(pts, s.color, mult < 1 ? 1.6 : 2.4, 0.18);
+    fx.add({ kind: 'glow', x: t.x, y: t.y - 22, vx: 0, vy: 0, life: 0.15, size: mult < 1 ? 14 : 20, color: s.color });
+    this.sfx('zap');
   }
 
   // Lightning / pulse status effects
@@ -591,32 +735,15 @@ export class Game {
       }
 
       case 'chain': {
-        const hits = [target];
-        let cur = target;
-        const cr2 = s.chainRange * s.chainRange;
-        while (hits.length < s.chains) {
-          let best = null, bd = cr2;
-          for (const e of this.enemies) {
-            if (e.dead || hits.includes(e) || !this.visible(e)) continue;
-            const d2 = (e.x - cur.x) ** 2 + (e.y - cur.y) ** 2;
-            if (d2 < bd) { bd = d2; best = e; }
-          }
-          if (!best) break;
-          hits.push(best);
-          cur = best;
+        this.chainStrike(t, target, 1);
+        if (s.echo) {
+          // Tempest: a second, weaker strike from the same spire
+          fx.after(0.4, () => {
+            if (!this.towers.includes(t) || this.over) return;
+            const tg = this.findTarget(t.x, t.y, s.range, t.targeting);
+            if (tg) this.chainStrike(t, tg, s.echo);
+          });
         }
-        const pts = [{ x: t.x, y: t.y - 22 }];
-        let dmg = s.damage;
-        for (const e of hits) {
-          pts.push({ x: e.x, y: e.y });
-          this.hurt(e, dmg, t, s.pierceArmor);
-          this.applyStatus(e, s);
-          fx.burst(e.x, e.y, s.color, 5, 120, 2, 0.25, 'spark', 4);
-          dmg *= s.chainFalloff;
-        }
-        fx.lightning(pts, s.color, 2.4, 0.18);
-        fx.add({ kind: 'glow', x: t.x, y: t.y - 22, vx: 0, vy: 0, life: 0.15, size: 20, color: s.color });
-        this.sfx('zap');
         break;
       }
 
@@ -643,6 +770,21 @@ export class Game {
           }
           this.hurt(e, s.damage, t, true);
           this.applyStatus(e, s);
+        }
+        if (s.hail && list.length) {
+          // Hailstorm: shards fall on random enemies in range, staggered
+          for (let i = 0; i < s.hail; i++) {
+            const e = list[Math.floor(Math.random() * list.length)];
+            fx.after(i * 0.09, () => {
+              if (e.dead || e.leaked) return;
+              const sx = e.x + rand(-14, 14), sy = e.y - 70;
+              fx.beam(sx, sy, e.x, e.y, s.color, 4, 0.18);
+              fx.beam(sx, sy, e.x, e.y, '#ffffff', 1.5, 0.12);
+              fx.burst(e.x, e.y, '#eaf8ff', 8, 130, 2.5, 0.35);
+              this.hurt(e, s.damage * 2, t, true);
+              this.sfx('hail');
+            });
+          }
         }
         fx.ring(t.x, t.y, 12, s.range, 0.55, s.color, s.singularity ? 4 : 3);
         if (s.singularity) fx.ring(t.x, t.y, s.range, 12, 0.5, '#6a3cff', 2);

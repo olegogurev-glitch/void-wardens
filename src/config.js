@@ -21,6 +21,22 @@ export const waveClearBonus = (w) => 25 + w * 10;
 // enemy HP multiplier for wave w; sectors can pass their own [linear, quadratic] curve
 export const waveHpMult = (w, [a, b] = [0.24, 0.045]) => 1 + a * (w - 1) + b * (w - 1) ** 2;
 
+// ── Player abilities ────────────────────────────────────────
+// Cooldowns run on game time and start ready.
+export const ABILITIES = {
+  firewall: {
+    name: 'Firewall', key: 'Z', cooldown: 40, color: '#00e5ff',
+    desc: 'Drop a barrier on the data bus. Holds malware back for 5s and burns what presses against it.',
+    duration: 5, bossHold: 1.5, dps: 14,
+  },
+  purge: {
+    name: 'System Purge', key: 'X', cooldown: 75, color: '#ffb800',
+    desc: 'Network-wide shock: 15% max HP to all malware, 1s stun, reveals Rootkits, strips shields.',
+    pct: 0.15, bossPct: 0.04, stun: 1, reveal: 5,
+  },
+};
+export const ABILITY_ORDER = ['firewall', 'purge'];
+
 // ── Enemies ─────────────────────────────────────────────────
 // armor: flat reduction per hit (min 20% of the hit always lands)
 // leak:  Core integrity lost when it reaches the Core
@@ -81,6 +97,9 @@ const DEFAULT_STATS = {
   stunChance: 0, stunTime: 0, pierceArmor: false,
   slow: 0, slowTime: 0, freezeChance: 0, freezeTime: 0, vuln: 0, pull: 0, singularity: false,
   missiles: 1, cluster: 0, burn: 0, burnRadius: 0, shake: 0,
+  spinUp: 0,   // Gatling: extra fire rate at full spin (0.8 = +80%)
+  echo: 0,     // Tempest: second strike 0.4s later at this damage share
+  hail: 0,     // Hailstorm: ice shards dropped per pulse (2× pulse damage each)
 };
 
 export const TOWERS = {
@@ -113,8 +132,8 @@ export const TOWERS = {
         next: [
           {
             name: 'Gatling Array', cost: 150, color: '#a6ffd6',
-            desc: 'Fire rate doubled again. A bullet storm that shreds swarms.',
-            apply: (s) => { s.rate *= 2; s.gatling = true; s.color = '#a6ffd6'; },
+            desc: 'Spins up: fire rate climbs by up to +120% while it keeps shooting.',
+            apply: (s) => { s.rate *= 1.35; s.spinUp = 1.2; s.gatling = true; s.color = '#a6ffd6'; },
           },
           {
             name: 'Scatter Array', cost: 160, color: '#00e5ff',
@@ -159,9 +178,9 @@ export const TOWERS = {
             apply: (s) => { s.pull = 28; s.damage *= 1.3; s.singularity = true; s.color = '#b388ff'; },
           },
           {
-            name: 'Frost Storm', cost: 150, color: '#7fffe1',
-            desc: 'Pulses twice as fast with heavy frost damage.',
-            apply: (s) => { s.rate *= 2; s.damage *= 1.7; s.color = '#7fffe1'; },
+            name: 'Hailstorm', cost: 150, color: '#7fffe1',
+            desc: 'Faster pulses that also drop 3 ice shards on enemies for heavy damage.',
+            apply: (s) => { s.rate *= 1.4; s.damage *= 1.5; s.hail = 3; s.color = '#7fffe1'; },
           },
         ],
       },
@@ -180,8 +199,8 @@ export const TOWERS = {
         next: [
           {
             name: 'Tempest', cost: 180, color: '#e0b3ff',
-            desc: 'Storm arcs chain through up to 9 enemies with almost no falloff.',
-            apply: (s) => { s.chains = 9; s.damage *= 1.4; s.chainFalloff = 0.93; s.color = '#e0b3ff'; },
+            desc: 'Arcs through up to 9 enemies, then strikes again 0.4s later at 50%.',
+            apply: (s) => { s.chains = 9; s.damage *= 1.25; s.chainFalloff = 0.93; s.echo = 0.5; s.color = '#e0b3ff'; },
           },
           {
             name: 'Overload', cost: 170, color: '#fff27a',

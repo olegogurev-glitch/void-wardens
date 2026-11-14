@@ -1,5 +1,5 @@
 // Tiny WebAudio synth — every sound is generated, no audio files.
-const GAPS = { shield: 60, heal: 250, shoot: 45, thump: 60, zap: 55, frost: 80, gravity: 120, pop: 35, pop2: 50, boom: 70, bigboom: 150, launch: 70, rail: 60, emp: 90 };
+const GAPS = { hail: 40, shield: 60, heal: 250, shoot: 45, thump: 60, zap: 55, frost: 80, gravity: 120, pop: 35, pop2: 50, boom: 70, bigboom: 150, launch: 70, rail: 60, emp: 90 };
 
 export class Sfx {
   constructor() {
@@ -132,6 +132,20 @@ export class Sfx {
       case 'heal':
         this.tone({ type: 'sine', f0: 520, f1: 880, dur: 0.25, gain: 0.035 });
         this.tone({ type: 'sine', f0: 780, f1: 1320, dur: 0.25, gain: 0.02, delay: 0.05 });
+        break;
+      case 'hail':
+        this.noise({ dur: 0.12, gain: 0.06, filter: 'highpass', f0: 3500 });
+        this.tone({ type: 'triangle', f0: 1800, f1: 600, dur: 0.1, gain: 0.025 });
+        break;
+      case 'firewall':
+        [330, 440, 660].forEach((f, i) => this.tone({ type: 'square', f0: f, f1: f * 2, dur: 0.25, gain: 0.04, delay: i * 0.04 }));
+        this.noise({ dur: 0.4, gain: 0.06, filter: 'bandpass', f0: 1200, f1: 4000, q: 2 });
+        break;
+      case 'firewallDown': this.tone({ type: 'sawtooth', f0: 600, f1: 80, dur: 0.35, gain: 0.06 }); break;
+      case 'purge':
+        this.tone({ type: 'sawtooth', f0: 60, f1: 1600, dur: 0.6, gain: 0.08 });
+        this.noise({ dur: 0.9, gain: 0.22, filter: 'lowpass', f0: 6000, f1: 200 });
+        this.tone({ type: 'sine', f0: 110, f1: 30, dur: 0.9, gain: 0.25, delay: 0.1 });
         break;
       case 'error': this.tone({ type: 'square', f0: 160, f1: 120, dur: 0.12, gain: 0.045 }); break;
       case 'click': this.tone({ type: 'sine', f0: 900, dur: 0.04, gain: 0.04 }); break;

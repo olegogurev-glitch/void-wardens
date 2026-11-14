@@ -12,6 +12,8 @@ export const PAL = {
   ink: '#060a12',
 };
 const MONO = '"JetBrains Mono", ui-monospace, monospace';
+// Set from the OS "reduce motion" preference: softer shake, no glitch slices, dimmer flashes.
+export const motion = { reduced: false };
 
 // ── Color + sprite helpers ──────────────────────────────────
 const rgbCache = new Map();
@@ -196,6 +198,9 @@ function drawBlaster(ctx, t, s, col, time) {
     }
     ctx.globalAlpha = baseA;
     ctx.fillStyle = col; ctx.fillRect(14, -5.5, 2, 11);
+    if (t.heat > 0.05) { // barrels glow as the array spins up
+      add(ctx); sprite(ctx, glow('#ffb347'), 20, 0, 3 + 6 * t.heat, 0.8 * t.heat); norm(ctx);
+    }
   } else if (s.scatter) {
     for (const a of [-0.35, 0, 0.35]) { ctx.save(); ctx.rotate(a); barrel(ctx, 4 + rk, 0, 16, 3); ctx.restore(); }
   } else if (s.twin) {
@@ -335,7 +340,7 @@ function drawEnemy(ctx, e, time, map) {
   const sp = Math.min(1, e.age / 0.35);
   // occasional glitch displacement
   const g = hash(Math.floor(time * 12) + e.seed * 7);
-  const jx = g < 0.08 ? (hash(g * 99) - 0.5) * 8 : 0;
+  const jx = !motion.reduced && g < 0.08 ? (hash(g * 99) - 0.5) * 8 : 0;
   ctx.save();
   ctx.translate(e.x + jx, e.y);
   if (sp < 1) ctx.scale(sp, sp * 0.3 + 0.7 * sp);
@@ -736,7 +741,8 @@ export class Renderer {
     ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
     let sx = 0, sy = 0;
-    if (fx.shakeMag > 0) { sx = (Math.random() - 0.5) * fx.shakeMag; sy = (Math.random() - 0.5) * fx.shakeMag; }
+    const shake = fx.shakeMag * (motion.reduced ? 0.15 : 1);
+    if (shake > 0) { sx = (Math.random() - 0.5) * shake; sy = (Math.random() - 0.5) * shake; }
     ctx.setTransform(k, 0, 0, k, sx * k, sy * k);
     ctx.drawImage(this.bg, 0, 0, WORLD_W, WORLD_H);
     this.drawRunners(ctx);
@@ -794,6 +800,7 @@ export class Renderer {
     }
 
     for (const t of game.towers) drawTower(ctx, t, time);
+    for (const fw of game.firewalls) this.drawFirewall(ctx, fw, fw.t / fw.max, rt, 1);
     for (const e of game.enemies) drawEnemy(ctx, e, time, this.map);
     this.drawProjectiles(ctx, game, time);
     this.drawFX(ctx, fx);
@@ -820,6 +827,20 @@ export class Renderer {
       }
     }
 
+    // firewall placement ghost
+    if (view.ability === 'firewall' && hov) {
+      const spot = game.snapToBus(hov.x, hov.y);
+      if (spot) this.drawFirewall(ctx, spot, 1, rt, 0.45);
+      else {
+        ctx.save(); ctx.translate(hov.x, hov.y);
+        ctx.strokeStyle = rgba(PAL.hostile, 0.85); ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(-6, -6); ctx.lineTo(6, 6); ctx.moveTo(6, -6); ctx.lineTo(-6, 6); ctx.stroke();
+        ctx.font = `600 9px ${MONO}`; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+        ctx.fillStyle = rgba(PAL.hostile, 0.9); ctx.fillText('PLACE ON THE BUS', 0, -12);
+        ctx.restore();
+      }
+    }
+
     // floating texts
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     for (const t of fx.texts) {
@@ -833,14 +854,42 @@ export class Renderer {
 
     // ── screen-space post ──
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    if (fx.shakeMag > 4.5) this.glitch(ctx, fx.shakeMag);
+    if (fx.shakeMag > 4.5 && !motion.reduced) this.glitch(ctx, fx.shakeMag);
     ctx.drawImage(this.post, 0, 0);
     if (fx.flashA > 0) {
-      ctx.fillStyle = `rgba(${fx.flashRGB},${fx.flashA * 0.45})`;
+      ctx.fillStyle = `rgba(${fx.flashRGB},${fx.flashA * (motion.reduced ? 0.15 : 0.45)})`;
       ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
     }
     ctx.setTransform(k, 0, 0, k, 0, 0);
     this.drawBossBar(ctx, game, rt);
+  }
+
+  // Firewall barrier across the bus. life: 1 → 0 as it expires; alpha < 1 for the ghost.
+  drawFirewall(ctx, fw, life, rt, alpha) {
+    const col = '#00e5ff';
+    const flicker = life < 0.25 && Math.sin(rt * 40) > 0 ? 0.45 : 1;
+    ctx.save();
+    ctx.translate(fw.x, fw.y);
+    ctx.rotate(fw.angle);
+    ctx.globalAlpha = alpha * flicker;
+    add(ctx);
+    ctx.fillStyle = rgba(col, 0.14);
+    ctx.fillRect(-5, -19, 10, 38);
+    // stacked "bricks" that scroll across the wall
+    const off = (rt * 30) % 8;
+    for (let y = -19 + off - 8; y < 19; y += 8) {
+      const y0 = Math.max(-19, y), y1 = Math.min(19, y + 5);
+      if (y1 > y0) { ctx.fillStyle = rgba(col, 0.75); ctx.fillRect(-2.5, y0, 5, y1 - y0); }
+    }
+    ctx.strokeStyle = col; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(-6, -20); ctx.lineTo(-6, 20); ctx.moveTo(6, -20); ctx.lineTo(6, 20); ctx.stroke();
+    sprite(ctx, glow(col), 0, -20, 7, 0.9);
+    sprite(ctx, glow(col), 0, 20, 7, 0.9);
+    // remaining-time bar
+    ctx.fillStyle = rgba(col, 0.9);
+    ctx.fillRect(-9, -24, 18 * life, 2);
+    norm(ctx);
+    ctx.restore();
   }
 
   // horizontal slice displacement — fires on heavy impacts

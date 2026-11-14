@@ -2,7 +2,7 @@
 import { WORLD_W, WORLD_H, TILE, TOWERS, TOWER_ORDER, towerStats } from './config.js';
 import { GameMap } from './map.js';
 import { Game, TARGET_MODES } from './game.js';
-import { Renderer } from './render.js';
+import { Renderer, motion } from './render.js';
 import { UI, describeWave } from './ui.js';
 import { Sfx } from './audio.js';
 import { Music } from './music.js';
@@ -61,7 +61,18 @@ const ctl = {
     ctl.select(null);
     sfx.play('click');
   },
-  cancel() { view.placing = null; view.placingStats = null; view.touchPending = null; },
+  cancel() { view.placing = null; view.placingStats = null; view.touchPending = null; view.ability = null; },
+  // Purge fires instantly; Firewall enters a click-to-place mode
+  ability(id) {
+    if (!view.started || view.paused || game.over) return;
+    if (view.ability === id) { view.ability = null; return; }
+    if (!game.abilityReady(id)) { sfx.play('error'); return; }
+    if (id === 'purge') { if (!game.usePurge()) sfx.play('error'); return; }
+    ctl.cancel();
+    ctl.select(null);
+    view.ability = id;
+    sfx.play('click');
+  },
   select(t) {
     view.selected = t;
     view.previewStats = null;
@@ -203,7 +214,7 @@ function toWorld(ev) {
 canvas.addEventListener('pointermove', (ev) => {
   view.hover = toWorld(ev);
   const t = game.towerAt(view.hover.c, view.hover.r);
-  canvas.style.cursor = view.placing ? 'crosshair' : t ? 'pointer' : 'default';
+  canvas.style.cursor = view.placing || view.ability ? 'crosshair' : t ? 'pointer' : 'default';
 });
 canvas.addEventListener('pointerleave', () => { if (!view.placing) view.hover = null; });
 canvas.addEventListener('contextmenu', (ev) => ev.preventDefault());
@@ -213,6 +224,10 @@ canvas.addEventListener('pointerdown', (ev) => {
   const p = toWorld(ev);
   view.hover = p;
   if (ev.button === 2) { ctl.cancel(); ctl.select(null); return; }
+  if (view.ability === 'firewall') {
+    if (game.useFirewall(p.x, p.y)) view.ability = null; else sfx.play('error');
+    return;
+  }
   if (view.placing) {
     const type = view.placing;
     if (game.canPlace(type, p.c, p.r)) {
@@ -249,6 +264,8 @@ window.addEventListener('keydown', (ev) => {
   else if (k === 'f') ctl.toggleSpeed();
   else if (k === 'm') ctl.toggleMute();
   else if (k === 'n') ctl.toggleMusic();
+  else if (k === 'z') ctl.ability('firewall');
+  else if (k === 'x') ctl.ability('purge');
   else if (view.selected && k === 'q') ctl.upgrade(0);
   else if (view.selected && k === 'e') ctl.upgrade(1);
   else if (view.selected && k === 's') ctl.sell();
@@ -281,3 +298,10 @@ requestAnimationFrame(frame);
 ui.showOverlay('start', { maps: MAPS, records: records(), current: mapDef.id });
 
 if (new URLSearchParams(location.search).has('debug')) window.VW = { game, view, ctl, ui, renderer, sfx, music };
+
+// Respect the OS "reduce motion" setting (and follow it if it changes mid-session)
+const reduceMq = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+if (reduceMq) {
+  motion.reduced = reduceMq.matches;
+  reduceMq.addEventListener?.('change', (e) => (motion.reduced = e.matches));
+}
