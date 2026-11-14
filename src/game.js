@@ -355,12 +355,16 @@ export class Game {
     if (!e.def.boss && e.radius < 14) {
       fx.burst(e.x, e.y, col, 14, 170, 3, 0.45);
       fx.burst(e.x, e.y, '#ffffff', 6, 220, 1.5, 0.25, 'spark', 4);
+      fx.burst(e.x, e.y, col, 3, 120, 3.5, 0.5, 'shard', 3);
       fx.ring(e.x, e.y, 3, 26, 0.3, col, 2);
+      fx.add({ kind: 'glow', x: e.x, y: e.y, vx: 0, vy: 0, life: 0.1, size: 18, color: col });
       this.sfx('pop');
     } else if (!e.def.boss) {
       fx.burst(e.x, e.y, col, 26, 210, 4, 0.6);
       fx.burst(e.x, e.y, col, 10, 160, 4, 0.9, 'debris', 2.5);
       fx.burst(e.x, e.y, '#ffffff', 10, 260, 1.8, 0.3, 'spark', 4);
+      fx.burst(e.x, e.y, col, 7, 190, 5, 0.75, 'shard', 2.5);
+      fx.burst(e.x, e.y, col, 8, 70, 2.5, 1.1, 'ember', 1.2);
       fx.ring(e.x, e.y, 6, 46, 0.4, col, 3);
       fx.add({ kind: 'glow', x: e.x, y: e.y, vx: 0, vy: 0, life: 0.18, size: 44, color: col });
       fx.shake(2.5);
@@ -385,6 +389,8 @@ export class Game {
         fx.burst(x, y, '#ff1f3d', 110, 560, 6, 1.2);
         fx.burst(x, y, '#ffffff', 40, 420, 3, 0.8, 'spark', 2);
         fx.burst(x, y, '#00e5ff', 24, 300, 6, 1.6, 'debris', 1.5);
+        fx.burst(x, y, '#ff2a6d', 26, 420, 7, 1.5, 'shard', 1.6);
+        fx.burst(x, y, '#ffb347', 40, 160, 3, 2.2, 'ember', 0.9);
         this.sfx('bigboom');
       });
       if (e === this.boss) this.boss = null;
@@ -959,6 +965,8 @@ export class Game {
     fx.burst(x, y, color, big ? 40 : small ? 8 : 16, radius * (big ? 4 : 3), big ? 5 : 3, big ? 0.7 : 0.4);
     fx.burst(x, y, '#ffffff', big ? 14 : 5, radius * 4, 1.6, 0.25, 'spark', 4);
     fx.add({ kind: 'glow', x, y, vx: 0, vy: 0, life: big ? 0.25 : 0.14, size: radius * (big ? 1.2 : 0.9), color });
+    if (!small) fx.burst(x, y, color, big ? 14 : 5, radius * 1.4, 2.5, big ? 1.1 : 0.7, 'ember', 1.4);
+    if (big) fx.burst(x, y, color, 6, radius * 3, 5, 0.6, 'shard', 2.5);
     if (!small) for (let i = 0; i < (big ? 6 : 3); i++) {
       fx.add({ kind: 'smoke', x: x + rand(-8, 8), y: y + rand(-8, 8), vx: rand(-30, 30), vy: rand(-30, 30), life: rand(0.5, 0.9), size: radius * 0.18, color: '#5c5680', drag: 2 });
     }

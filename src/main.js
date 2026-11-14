@@ -21,7 +21,10 @@ let mapDef = mapById(store.get('sector'));
 const game = new Game(new GameMap(mapDef), DIFFICULTIES[store.get('difficulty')] ? store.get('difficulty') : 'normal');
 const sfx = new Sfx();
 const music = new Music(sfx);
-const renderer = new Renderer(canvas, game.map);
+// ?fx=low|medium|high pins a graphics tier (default: start high, step down if frames are slow);
+// ?fx=2d skips WebGL post-processing entirely.
+const fxParam = new URLSearchParams(location.search).get('fx');
+const renderer = new Renderer(canvas, game.map, { quality: fxParam, post: fxParam !== '2d' });
 
 function loadSector(id) {
   const def = mapById(id);

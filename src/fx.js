@@ -8,8 +8,9 @@ export class FX {
   constructor() { this.clear(); }
 
   clear() {
-    this.parts = [];   // particles: glow | spark | smoke | debris
+    this.parts = [];   // particles: glow | spark | smoke | debris | shard | ember
     this.rings = [];   // expanding shockwaves
+    this.waves = [];   // screen refraction that rides along big expanding rings (WebGL post)
     this.beams = [];   // straight energy beams
     this.arcs = [];    // lightning polylines
     this.texts = [];   // floating numbers
@@ -36,7 +37,13 @@ export class FX {
     }
   }
 
-  ring(x, y, r0, r1, life, color, width = 3) { this.rings.push({ x, y, r0, r1, life, max: life, color, width }); }
+  ring(x, y, r0, r1, life, color, width = 3) {
+    this.rings.push({ x, y, r0, r1, life, max: life, color, width });
+    if (r1 >= 40 && r1 > r0) {
+      if (this.waves.length >= 24) this.waves.shift();
+      this.waves.push({ x, y, r0, r1, life, max: life, amp: Math.min(1.5, width / 4) * Math.min(1, (r1 - r0) / 60) });
+    }
+  }
   beam(x1, y1, x2, y2, color, width, life) { this.beams.push({ x1, y1, x2, y2, color, width, life, max: life }); }
   lightning(points, color, width = 2, life = 0.16) { this.arcs.push({ points, color, width, life, max: life }); }
   text(x, y, str, color = '#fff', size = 13) { this.texts.push({ x, y, str, color, size, life: 0.9, max: 0.9 }); }
@@ -61,7 +68,7 @@ export class FX {
     P.length = j;
 
     const tick = (arr) => { let k = 0; for (const o of arr) { o.life -= dt; if (o.life > 0) arr[k++] = o; } arr.length = k; };
-    tick(this.rings); tick(this.beams); tick(this.arcs);
+    tick(this.rings); tick(this.waves); tick(this.beams); tick(this.arcs);
     for (const t of this.texts) t.y -= 30 * dt;
     tick(this.texts);
 

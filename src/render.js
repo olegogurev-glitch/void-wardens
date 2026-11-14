@@ -1,6 +1,7 @@
 // Canvas renderer — cyber-grid theme (Tron / Blade Runner minimalism).
 // Everything is procedural: neon line-art on near-black, no image assets.
 import { WORLD_W, WORLD_H, TILE, COLS, ROWS, TOWERS } from './config.js';
+import { Post } from './post.js';
 
 const TAU = Math.PI * 2;
 export const PAL = {
@@ -28,14 +29,15 @@ export function rgb(hex) {
 }
 export const rgba = (hex, a) => `rgba(${rgb(hex)},${a})`;
 
-function makeSprite(stops) {
+function makeSprite(stops, size = 64) {
   const c = document.createElement('canvas');
-  c.width = c.height = 64;
+  c.width = c.height = size;
   const g = c.getContext('2d');
-  const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  const h = size / 2;
+  const gr = g.createRadialGradient(h, h, 0, h, h, h);
   for (const [o, col] of stops) gr.addColorStop(o, col);
   g.fillStyle = gr;
-  g.fillRect(0, 0, 64, 64);
+  g.fillRect(0, 0, size, size);
   return c;
 }
 const glowCache = new Map();
@@ -55,6 +57,40 @@ export function aura(color) {
     auraCache.set(color, c);
   }
   return c;
+}
+// soft light falloff used by the lighting pass (bigger texture: it gets scaled up a lot)
+const lightCache = new Map();
+export function light(color) {
+  let c = lightCache.get(color);
+  if (!c) {
+    c = makeSprite([[0, rgba(color, 1)], [0.18, rgba(color, 0.6)], [0.5, rgba(color, 0.17)], [1, rgba(color, 0)]], 128);
+    lightCache.set(color, c);
+  }
+  return c;
+}
+// soft volumetric puff for smoke (normal blend)
+const puffCache = new Map();
+function puff(color) {
+  let c = puffCache.get(color);
+  if (!c) {
+    c = makeSprite([[0, rgba(color, 0.55)], [0.45, rgba(color, 0.28)], [1, rgba(color, 0)]]);
+    puffCache.set(color, c);
+  }
+  return c;
+}
+// contact shadow under towers and enemies
+let shadowSpr = null;
+const shadow = () => shadowSpr || (shadowSpr = makeSprite([[0, 'rgba(0,0,0,0.8)'], [0.45, 'rgba(0,0,0,0.5)'], [1, 'rgba(0,0,0,0)']]));
+// brushed-metal plate fill, in tower-local coordinates (reused for every tower)
+let plateGrad = null;
+function plateFill(ctx) {
+  if (!plateGrad) {
+    plateGrad = ctx.createLinearGradient(-15, -15, 15, 15);
+    plateGrad.addColorStop(0, '#1b2738');
+    plateGrad.addColorStop(0.42, '#0c1320');
+    plateGrad.addColorStop(1, '#03060b');
+  }
+  return plateGrad;
 }
 // Multiplies with the current globalAlpha and restores it, so a translucent
 // parent (e.g. the placement ghost) stays translucent.
@@ -141,7 +177,8 @@ export function drawTower(ctx, t, time) {
     ctx.restore();
   }
 
-  // chip platform with pins
+  // contact shadow + chip platform with pins
+  sprite(ctx, shadow(), 2.5, 4.5, 27, 0.9);
   ctx.strokeStyle = rgba(base, 0.45); ctx.lineWidth = 1;
   ctx.beginPath();
   for (const o of [-7, 0, 7]) {
@@ -149,11 +186,30 @@ export function drawTower(ctx, t, time) {
     ctx.moveTo(-15, o); ctx.lineTo(-18, o); ctx.moveTo(15, o); ctx.lineTo(18, o);
   }
   ctx.stroke();
+  ctx.fillStyle = rgba(base, 0.9);
+  for (const o of [-7, 0, 7]) { ctx.fillRect(o - 0.75, -18.6, 1.5, 1.2); ctx.fillRect(o - 0.75, 17.4, 1.5, 1.2); ctx.fillRect(-18.6, o - 0.75, 1.2, 1.5); ctx.fillRect(17.4, o - 0.75, 1.2, 1.5); }
   chip(ctx, 15, 5);
-  ctx.fillStyle = PAL.ink; ctx.fill();
+  ctx.fillStyle = plateFill(ctx); ctx.fill();
   ctx.lineWidth = 1.3; ctx.strokeStyle = rgba(base, 0.9); ctx.stroke();
+  // bevel: lit top-left edge, shaded bottom-right
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(255,255,255,0.16)';
+  ctx.beginPath(); ctx.moveTo(-13.7, 7); ctx.lineTo(-13.7, -9.6); ctx.lineTo(-9.6, -13.7); ctx.lineTo(7, -13.7); ctx.stroke();
+  ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+  ctx.beginPath(); ctx.moveTo(13.7, -7); ctx.lineTo(13.7, 9.6); ctx.lineTo(9.6, 13.7); ctx.lineTo(-7, 13.7); ctx.stroke();
+  // periodic light sheen sweeping across the plate
+  const ph = (time * 0.2 + (t.id || 0) * 0.137) % 1;
+  if (ph < 0.16) {
+    ctx.save();
+    chip(ctx, 14.3, 4.6); ctx.clip();
+    ctx.rotate(-0.65);
+    const x = -26 + (ph / 0.16) * 52;
+    ctx.fillStyle = 'rgba(255,255,255,0.05)'; ctx.fillRect(x - 7, -30, 14, 60);
+    ctx.fillStyle = 'rgba(255,255,255,0.11)'; ctx.fillRect(x - 1.2, -30, 2.4, 60);
+    ctx.restore();
+  }
   chip(ctx, 11, 3.5);
-  ctx.strokeStyle = rgba(base, 0.14); ctx.lineWidth = 1; ctx.stroke();
+  ctx.strokeStyle = rgba(base, 0.18); ctx.lineWidth = 1; ctx.stroke();
 
   switch (t.type) {
     case 'blaster': drawBlaster(ctx, t, s, col, time); break;
@@ -347,6 +403,7 @@ function drawEnemy(ctx, e, time, map) {
 
   const cloaked = e.def.stealth && e.revealT <= 0;
   if (!cloaked) {
+    sprite(ctx, shadow(), 2, 4, r * 1.6, 0.75);
     add(ctx);
     sprite(ctx, aura(col), 0, 0, r * (e.def.boss ? 2.6 : 2.1), e.def.boss ? 0.7 : 0.45);
     norm(ctx);
@@ -525,15 +582,37 @@ function drawEnemy(ctx, e, time, map) {
 }
 
 // ── Renderer ────────────────────────────────────────────────
+// Quality tiers. The renderer starts at the top and steps down on its own if frames run slow.
+const QUALITY = [
+  { name: 'low', dpr: 1, bloom: false, lights: false },
+  { name: 'medium', dpr: 1.25, bloom: true, lights: true },
+  { name: 'high', dpr: 2, bloom: true, lights: true },
+];
+
 export class Renderer {
-  constructor(canvas, map) {
-    this.canvas = canvas;
-    this.ctx = canvas.getContext('2d');
+  // opts.quality: 'low' | 'medium' | 'high' pins a tier (no auto-downgrade); opts.post=false forces plain 2D
+  constructor(canvas, map, opts = {}) {
+    this.view = canvas;
+    this.post = opts.post === false ? null : Post.create(canvas);
+    // With WebGL, the scene is drawn to an offscreen 2D canvas and composited onto the visible one.
+    this.canvas = this.post ? document.createElement('canvas') : canvas;
+    this.ctx = this.canvas.getContext('2d');
     this.map = map;
     this.k = 1;
     this.lastRt = 0;
     this.runners = Array.from({ length: 6 }, () => this.newRunner(true));
+    this.motes = Array.from({ length: 70 }, () => this.newMote(true));
+    this.bokeh = Array.from({ length: 9 }, () => this.newBokeh(true));
+    this.trails = new Map();
+    this.frameNo = 0;
+    const fixed = QUALITY.findIndex((q) => q.name === opts.quality);
+    this.quality = fixed >= 0 ? fixed : QUALITY.length - 1;
+    this.autoQuality = fixed < 0;
+    this.perf = { warm: 0, acc: 0, n: 0 };
+    this.flashRGB = { key: '', v: [1, 1, 1] };
   }
+
+  get q() { return QUALITY[this.quality]; }
 
   setMap(map) {
     this.map = map;
@@ -541,11 +620,38 @@ export class Renderer {
   }
 
   resize(cssW, cssH, dpr) {
-    this.canvas.width = Math.max(1, Math.round(cssW * dpr));
-    this.canvas.height = Math.max(1, Math.round(cssH * dpr));
-    this.k = this.canvas.width / WORLD_W;
-    this.dpr = dpr;
+    this.cssSize = [cssW, cssH, dpr];
+    const d = Math.min(dpr, this.q.dpr);
+    const w = Math.max(1, Math.round(cssW * d)), h = Math.max(1, Math.round(cssH * d));
+    this.canvas.width = w;
+    this.canvas.height = h;
+    if (this.post) this.post.resize(w, h);
+    this.k = w / WORLD_W;
+    this.dpr = d;
     this.buildStatic();
+  }
+
+  setQuality(i) {
+    this.quality = Math.max(0, Math.min(QUALITY.length - 1, i));
+    if (this.cssSize) this.resize(...this.cssSize);
+  }
+
+  // Step down a tier when frames average under ~40 fps for a 2-second window.
+  govern(rdt) {
+    if (!this.autoQuality || this.quality === 0 || rdt <= 0 || rdt > 0.25) return;
+    if (typeof document !== 'undefined' && document.hidden) return;
+    const P = this.perf;
+    P.warm += rdt;
+    if (P.warm < 4) return;
+    P.acc += rdt; P.n++;
+    if (P.acc < 2) return;
+    const avg = P.acc / P.n;
+    P.acc = 0; P.n = 0;
+    if (avg > 1 / 40) {
+      this.setQuality(this.quality - 1);
+      P.warm = 0;
+      console.info(`[render] frames slow (${(1000 * avg).toFixed(1)} ms) → quality ${this.q.name}`);
+    }
   }
 
   layer(worldScale = true) {
@@ -573,39 +679,52 @@ export class Renderer {
       g.fillStyle = gr; g.fillRect(0, 0, W, H);
     }
     norm(g);
-    g.lineWidth = 1;
-    for (let i = 0; i <= COLS; i++) {
-      g.strokeStyle = rgba(PAL.grid, i % 4 === 0 ? 0.1 : 0.045);
-      g.beginPath(); g.moveTo(i * TILE + 0.5, 0); g.lineTo(i * TILE + 0.5, H); g.stroke();
-    }
-    for (let j = 0; j <= ROWS; j++) {
-      g.strokeStyle = rgba(PAL.grid, j % 4 === 0 ? 0.1 : 0.045);
-      g.beginPath(); g.moveTo(0, j * TILE + 0.5); g.lineTo(W, j * TILE + 0.5); g.stroke();
-    }
-    // tiny "+" marks on major intersections
-    g.strokeStyle = rgba(PAL.grid, 0.3);
-    for (let i = 0; i <= COLS; i += 4) for (let j = 0; j <= ROWS; j += 4) {
-      g.beginPath(); g.moveTo(i * TILE - 3, j * TILE + 0.5); g.lineTo(i * TILE + 4, j * TILE + 0.5);
-      g.moveTo(i * TILE + 0.5, j * TILE - 3); g.lineTo(i * TILE + 0.5, j * TILE + 4); g.stroke();
-    }
+    // lit: the same linework at full brightness — the lighting pass reveals it near light sources
+    const [lit, lg] = this.layer();
+    // fine sub-grid (half tiles) for texture; only visible where light falls
+    lg.lineWidth = 0.6; lg.strokeStyle = 'rgba(127,240,255,0.22)';
+    lg.beginPath();
+    for (let i = 0; i < COLS; i++) { lg.moveTo(i * TILE + TILE / 2 + 0.5, 0); lg.lineTo(i * TILE + TILE / 2 + 0.5, H); }
+    for (let j = 0; j < ROWS; j++) { lg.moveTo(0, j * TILE + TILE / 2 + 0.5); lg.lineTo(W, j * TILE + TILE / 2 + 0.5); }
+    lg.stroke();
+    const both = (fn) => { fn(g, 1); fn(lg, 0); };
+    both((c, dim) => {
+      c.lineWidth = 1;
+      for (let i = 0; i <= COLS; i++) {
+        c.strokeStyle = dim ? rgba(PAL.grid, i % 4 === 0 ? 0.1 : 0.045) : `rgba(140,245,255,${i % 4 === 0 ? 0.95 : 0.55})`;
+        c.beginPath(); c.moveTo(i * TILE + 0.5, 0); c.lineTo(i * TILE + 0.5, H); c.stroke();
+      }
+      for (let j = 0; j <= ROWS; j++) {
+        c.strokeStyle = dim ? rgba(PAL.grid, j % 4 === 0 ? 0.1 : 0.045) : `rgba(140,245,255,${j % 4 === 0 ? 0.95 : 0.55})`;
+        c.beginPath(); c.moveTo(0, j * TILE + 0.5); c.lineTo(W, j * TILE + 0.5); c.stroke();
+      }
+      // tiny "+" marks on major intersections
+      c.strokeStyle = dim ? rgba(PAL.grid, 0.3) : '#ffffff';
+      for (let i = 0; i <= COLS; i += 4) for (let j = 0; j <= ROWS; j += 4) {
+        c.beginPath(); c.moveTo(i * TILE - 3, j * TILE + 0.5); c.lineTo(i * TILE + 4, j * TILE + 0.5);
+        c.moveTo(i * TILE + 0.5, j * TILE - 3); c.lineTo(i * TILE + 0.5, j * TILE + 4); c.stroke();
+      }
+    });
     // circuit traces in open space
     for (let n = 0; n < 22; n++) {
       let c = Math.floor(rnd() * COLS), r = Math.floor(rnd() * ROWS);
       if (!this.map.isBuildable(c, r)) continue;
       let x = c * TILE + TILE / 2, y = r * TILE + TILE / 2;
-      g.strokeStyle = rgba(PAL.grid, 0.09); g.lineWidth = 1.2;
-      g.beginPath(); g.moveTo(x, y);
-      g.fillStyle = rgba(PAL.grid, 0.16); g.fillRect(x - 2, y - 2, 4, 4);
+      const pts = [{ x, y }];
       let horiz = rnd() < 0.5;
       for (let s = 0; s < 2 + Math.floor(rnd() * 3); s++) {
         const len = (1 + Math.floor(rnd() * 3)) * TILE * (rnd() < 0.5 ? -1 : 1);
         const nx = horiz ? x + len : x, ny = horiz ? y : y + len;
         const nc = Math.floor(nx / TILE), nr = Math.floor(ny / TILE);
         if (!this.map.isBuildable(nc, nr)) break;
-        x = nx; y = ny; g.lineTo(x, y); horiz = !horiz;
+        x = nx; y = ny; pts.push({ x, y }); horiz = !horiz;
       }
-      g.stroke();
-      g.strokeStyle = rgba(PAL.grid, 0.18); g.strokeRect(x - 3, y - 3, 6, 6);
+      both((cx, dim) => {
+        cx.strokeStyle = dim ? rgba(PAL.grid, 0.09) : 'rgba(140,245,255,0.8)'; cx.lineWidth = 1.2;
+        cx.beginPath(); pts.forEach((p, i) => (i ? cx.lineTo(p.x, p.y) : cx.moveTo(p.x, p.y))); cx.stroke();
+        cx.fillStyle = dim ? rgba(PAL.grid, 0.16) : '#ffffff'; cx.fillRect(pts[0].x - 2, pts[0].y - 2, 4, 4);
+        cx.strokeStyle = dim ? rgba(PAL.grid, 0.18) : 'rgba(200,250,255,0.95)'; cx.strokeRect(x - 3, y - 3, 6, 6);
+      });
     }
     this.bg = bg;
 
@@ -653,7 +772,20 @@ export class Renderer {
     }
     this.bus = bus;
 
-    // ── post: vignette + scanlines (screen space)
+    // lit layer: no grid inside the bus, but its two edge rails catch the light
+    lg.lineJoin = 'miter'; lg.lineCap = 'square';
+    const litStroke = (w, style) => {
+      lg.lineWidth = w; lg.strokeStyle = style;
+      for (const path of paths) { lg.beginPath(); path.points.forEach((p, i) => (i ? lg.lineTo(p.x, p.y) : lg.moveTo(p.x, p.y))); lg.stroke(); }
+    };
+    lg.globalCompositeOperation = 'destination-out'; litStroke(37, '#000');
+    lg.globalCompositeOperation = 'source-over'; litStroke(36, 'rgba(200,250,255,0.5)');
+    lg.globalCompositeOperation = 'destination-out'; litStroke(33, '#000');
+    lg.globalCompositeOperation = 'source-over';
+    this.litGrid = lit;
+    [this.lightCv, this.lctx] = this.layer(false);
+
+    // ── 2D fallback post: vignette + scanlines (screen space). The WebGL path does this in a shader.
     const [post, p] = this.layer(false);
     const cw = post.width, ch = post.height;
     const vg = p.createRadialGradient(cw / 2, ch / 2, ch * 0.4, cw / 2, ch / 2, cw * 0.72);
@@ -662,7 +794,7 @@ export class Renderer {
     p.fillStyle = 'rgba(0,0,0,0.16)';
     const step = Math.max(3, Math.round(3 * (this.dpr || 1)));
     for (let y = 0; y < ch; y += step) p.fillRect(0, y, cw, Math.max(1, Math.round(this.dpr || 1)));
-    this.post = post;
+    this.vignette = post;
   }
 
   // ── light-cycle runners on the background grid ──
@@ -704,6 +836,149 @@ export class Renderer {
     }
   }
 
+  // ── ambient atmosphere: drifting data motes (background) + soft bokeh (foreground) ──
+  newMote(initial = false) {
+    return {
+      x: Math.random() * WORLD_W, y: initial ? Math.random() * WORLD_H : WORLD_H + 8,
+      vx: (Math.random() - 0.5) * 8, vy: -(5 + Math.random() * 14),
+      s: 0.8 + Math.random() * 1.5, ph: Math.random() * TAU, a: 0.18 + Math.random() * 0.4,
+      col: Math.random() < 0.78 ? '#7fe9ff' : Math.random() < 0.6 ? '#ff5c8a' : '#ffcf5c',
+    };
+  }
+
+  newBokeh(initial = false) {
+    return {
+      x: Math.random() * WORLD_W, y: initial ? Math.random() * WORLD_H : WORLD_H + 40,
+      vx: (Math.random() - 0.5) * 6, vy: -(3 + Math.random() * 6),
+      r: 10 + Math.random() * 22, ph: Math.random() * TAU, a: 0.05 + Math.random() * 0.07,
+      col: Math.random() < 0.65 ? '#00e5ff' : '#ff2a6d',
+    };
+  }
+
+  stepAmbient(dt) {
+    for (let i = 0; i < this.motes.length; i++) {
+      const m = this.motes[i];
+      m.x += m.vx * dt; m.y += m.vy * dt;
+      if (m.y < -8 || m.x < -8 || m.x > WORLD_W + 8) this.motes[i] = this.newMote();
+    }
+    for (let i = 0; i < this.bokeh.length; i++) {
+      const b = this.bokeh[i];
+      b.x += b.vx * dt; b.y += b.vy * dt;
+      if (b.y < -40 || b.x < -40 || b.x > WORLD_W + 40) this.bokeh[i] = this.newBokeh();
+    }
+  }
+
+  drawMotes(ctx, rt) {
+    add(ctx);
+    for (const m of this.motes) {
+      const a = m.a * (0.45 + 0.55 * Math.sin(rt * 1.7 + m.ph) ** 2);
+      ctx.fillStyle = rgba(m.col, a);
+      ctx.fillRect(m.x - m.s / 2, m.y - m.s / 2, m.s, m.s);
+    }
+    norm(ctx);
+  }
+
+  drawBokeh(ctx, rt) {
+    add(ctx);
+    for (const b of this.bokeh) sprite(ctx, aura(b.col), b.x, b.y, b.r, b.a * (0.6 + 0.4 * Math.sin(rt * 0.9 + b.ph)));
+    norm(ctx);
+  }
+
+  // ── dynamic lighting: every emitter lights the grid around it ──
+  // Lights accumulate in an offscreen buffer, which is then masked by the bright grid layer
+  // (destination-in) and added onto the scene, so grid lines glow near towers, enemies and blasts.
+  drawLighting(ctx, game, rt, coreCol) {
+    const L = this.lctx, k = this.k, fx = game.fx, W = WORLD_W, H = WORLD_H;
+    L.setTransform(1, 0, 0, 1, 0, 0);
+    L.globalCompositeOperation = 'source-over';
+    L.globalAlpha = 1;
+    L.clearRect(0, 0, this.lightCv.width, this.lightCv.height);
+    L.setTransform(k, 0, 0, k, 0, 0);
+    L.globalCompositeOperation = 'lighter';
+    // ambient pools drifting across the board
+    sprite(L, light('#00e5ff'), W * (0.5 + 0.4 * Math.sin(rt * 0.07)), H * (0.5 + 0.38 * Math.sin(rt * 0.11 + 1)), 440, 0.2);
+    sprite(L, light('#ff2a6d'), W * (0.5 + 0.42 * Math.cos(rt * 0.05 + 2)), H * (0.5 + 0.4 * Math.sin(rt * 0.083)), 380, 0.15);
+    sprite(L, light('#b967ff'), W * (0.5 + 0.35 * Math.sin(rt * 0.045 + 4)), H * (0.5 + 0.3 * Math.cos(rt * 0.06)), 340, 0.12);
+    // slow holographic scan band sweeping down the grid
+    const by = ((rt * 62) % (H + 520)) - 260;
+    const sg = L.createLinearGradient(0, by - 80, 0, by + 80);
+    sg.addColorStop(0, 'rgba(0,229,255,0)'); sg.addColorStop(0.5, 'rgba(0,229,255,0.32)'); sg.addColorStop(1, 'rgba(0,229,255,0)');
+    L.fillStyle = sg; L.fillRect(0, by - 80, W, 160);
+    // fixed emitters
+    const live = game.state === 'wave' ? 1 : 0.55;
+    for (const p of this.map.paths) sprite(L, light(PAL.hostile), p.start.x, p.start.y, 170, 0.6 * live);
+    const C = this.map.core;
+    sprite(L, light(coreCol), C.x, C.y, 210, Math.min(1, 0.75 + game.coreFlash));
+    for (const r of this.runners) sprite(L, light(r.col), r.x, r.y, 46, 0.5);
+    // dynamic emitters
+    for (const t of game.towers) sprite(L, light(t.stats.color), t.x, t.y, 64 + t.level * 8, Math.min(1, 0.42 + t.recoil * 0.45 + t.upgradeFlash));
+    for (const e of game.enemies) {
+      if (e.def.stealth && e.revealT <= 0) continue;
+      sprite(L, light(e.def.color), e.x, e.y, e.radius * (e.def.boss ? 6 : 4.5), e.def.boss ? 0.9 : 0.6);
+    }
+    for (const p of game.projectiles) if (!(p.delay > 0)) sprite(L, light(p.color), p.x, p.y, 42, 0.55);
+    for (const z of game.zones) sprite(L, light(z.color), z.x, z.y, z.r * 1.8, 0.55 * Math.min(1, z.t / 0.3));
+    for (const p of fx.parts) if (p.kind === 'glow' && p.size > 6) sprite(L, light(p.color), p.x, p.y, p.size * 3.5, p.life / p.max);
+    for (const r of fx.rings) {
+      if (r.r1 <= r.r0) continue;
+      const a = r.life / r.max;
+      sprite(L, light(r.color), r.x, r.y, r.r0 + (r.r1 - r.r0) * easeOut(1 - a) + 30, a * 0.8);
+    }
+    for (const b of fx.beams) sprite(L, light(b.color), (b.x1 + b.x2) / 2, (b.y1 + b.y2) / 2, Math.hypot(b.x2 - b.x1, b.y2 - b.y1) * 0.6 + 30, b.life / b.max);
+    // keep only the light that falls on grid lines
+    L.globalCompositeOperation = 'destination-in';
+    L.drawImage(this.litGrid, 0, 0, W, H);
+    L.globalCompositeOperation = 'source-over';
+    add(ctx);
+    ctx.drawImage(this.lightCv, 0, 0, W, H);
+    norm(ctx);
+  }
+
+  // soft colored pools on the floor under towers (drawn before the towers themselves)
+  drawPools(ctx, game) {
+    add(ctx);
+    for (const t of game.towers) sprite(ctx, light(t.stats.color), t.x, t.y, 46 + t.level * 6, 0.09 + t.recoil * 0.12 + t.upgradeFlash * 0.3);
+    norm(ctx);
+  }
+
+  // ── enemy motion trails (positions sampled in sim time, so pausing freezes them) ──
+  updateTrails(game) {
+    const f = ++this.frameNo, now = game.time;
+    for (const e of game.enemies) {
+      let tr = this.trails.get(e);
+      if (!tr) { tr = { pts: [] }; this.trails.set(e, tr); }
+      tr.seen = f;
+      const pts = tr.pts, last = pts[pts.length - 1];
+      if (last && now < last.t) pts.length = 0;
+      if (!last || Math.abs(e.x - last.x) + Math.abs(e.y - last.y) > 3) pts.push({ x: e.x, y: e.y, t: now });
+      const maxAge = e.def.boss ? 0.45 : 0.26;
+      while (pts.length > 1 && now - pts[0].t > maxAge) pts.shift();
+    }
+    for (const [e, tr] of this.trails) if (tr.seen !== f) this.trails.delete(e);
+  }
+
+  drawTrails(ctx, game) {
+    add(ctx);
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    for (const e of game.enemies) {
+      const tr = this.trails.get(e);
+      if (!tr || tr.pts.length < 2 || (e.def.stealth && e.revealT <= 0)) continue;
+      const pts = tr.pts, n = pts.length, col = e.def.color;
+      const w0 = e.radius * (e.def.boss ? 1.1 : 0.85), age = e.def.boss ? 0.45 : 0.26;
+      let px = e.x, py = e.y;
+      for (let i = n - 1; i >= 0; i--) {
+        const f = Math.max(0, 1 - (game.time - pts[i].t) / age);
+        if (f <= 0) break;
+        ctx.strokeStyle = rgba(col, 0.22 * f * f);
+        ctx.lineWidth = w0 * (0.25 + 0.75 * f);
+        ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(pts[i].x, pts[i].y); ctx.stroke();
+        px = pts[i].x; py = pts[i].y;
+      }
+    }
+    ctx.lineCap = 'butt'; ctx.lineJoin = 'miter';
+    norm(ctx);
+  }
+
   drawRunners(ctx) {
     add(ctx);
     ctx.lineWidth = 1.6;
@@ -730,9 +1005,15 @@ export class Renderer {
   render(game, view, rt) {
     const ctx = this.ctx, fx = game.fx, k = this.k;
     const time = game.time;
-    const rdt = Math.min(0.1, Math.max(0, rt - this.lastRt));
+    const rawDt = rt - this.lastRt;
+    const rdt = Math.min(0.1, Math.max(0, rawDt));
     this.lastRt = rt;
+    this.govern(rawDt);
     this.stepRunners(rdt);
+    this.stepAmbient(rdt);
+    this.updateTrails(game);
+    const reduced = motion.reduced;
+    const coreCol = lerpColor(PAL.hostile, PAL.grid, game.lives / game.maxLives);
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     norm(ctx);
@@ -740,13 +1021,24 @@ export class Renderer {
     ctx.fillStyle = PAL.bg;
     ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
-    let sx = 0, sy = 0;
-    const shake = fx.shakeMag * (motion.reduced ? 0.15 : 1);
-    if (shake > 0) { sx = (Math.random() - 0.5) * shake; sy = (Math.random() - 0.5) * shake; }
-    ctx.setTransform(k, 0, 0, k, sx * k, sy * k);
+    // camera: smooth noise-driven shake with a touch of roll, plus a zoom punch on big hits
+    const shake = fx.shakeMag * (reduced ? 0.15 : 1);
+    const sx = shake * 0.55 * (Math.sin(rt * 61.3) * 0.6 + Math.sin(rt * 37.1 + 1.7) * 0.4);
+    const sy = shake * 0.55 * (Math.sin(rt * 53.7 + 0.6) * 0.6 + Math.sin(rt * 29.3 + 2.9) * 0.4);
+    const roll = reduced ? 0 : shake * 0.0011 * Math.sin(rt * 41.9 + 0.3);
+    const zoom = reduced ? 1 : 1 + Math.min(0.03, fx.shakeMag * 0.0013);
+    ctx.setTransform(k, 0, 0, k, 0, 0);
+    ctx.translate(WORLD_W / 2 + sx, WORLD_H / 2 + sy);
+    ctx.rotate(roll);
+    ctx.scale(zoom, zoom);
+    ctx.translate(-WORLD_W / 2, -WORLD_H / 2);
+    const cam = ctx.getTransform();
+
     ctx.drawImage(this.bg, 0, 0, WORLD_W, WORLD_H);
+    this.drawMotes(ctx, rt);
     this.drawRunners(ctx);
     ctx.drawImage(this.bus, 0, 0, WORLD_W, WORLD_H);
+    if (this.q.lights) this.drawLighting(ctx, game, rt, coreCol);
     this.drawBusFlow(ctx, time);
 
     const multi = this.map.paths.length > 1;
@@ -799,8 +1091,10 @@ export class Renderer {
       if (ht && ht !== sel) this.drawRange(ctx, ht.x, ht.y, ht.stats.range, ht.stats.color, true);
     }
 
+    this.drawPools(ctx, game);
     for (const t of game.towers) drawTower(ctx, t, time);
     for (const fw of game.firewalls) this.drawFirewall(ctx, fw, fw.t / fw.max, rt, 1);
+    this.drawTrails(ctx, game);
     for (const e of game.enemies) drawEnemy(ctx, e, time, this.map);
     this.drawProjectiles(ctx, game, time);
     this.drawFX(ctx, fx);
@@ -851,17 +1145,64 @@ export class Renderer {
       ctx.fillStyle = t.color; ctx.fillText(t.str, t.x, t.y);
     }
     ctx.globalAlpha = 1;
+    this.drawBokeh(ctx, rt);
 
-    // ── screen-space post ──
+    if (this.post && !this.post.lost) {
+      // boss bar goes into the scene so it blooms too; the shader does vignette/scanlines/flash/glitch
+      ctx.setTransform(k, 0, 0, k, 0, 0);
+      this.drawBossBar(ctx, game, rt);
+      this.composite(game, rt, cam, zoom);
+      return;
+    }
+
+    // ── 2D fallback screen-space post ──
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    if (fx.shakeMag > 4.5 && !motion.reduced) this.glitch(ctx, fx.shakeMag);
-    ctx.drawImage(this.post, 0, 0);
+    if (fx.shakeMag > 4.5 && !reduced) this.glitch(ctx, fx.shakeMag);
+    ctx.drawImage(this.vignette, 0, 0);
     if (fx.flashA > 0) {
-      ctx.fillStyle = `rgba(${fx.flashRGB},${fx.flashA * (motion.reduced ? 0.15 : 0.45)})`;
+      ctx.fillStyle = `rgba(${fx.flashRGB},${fx.flashA * (reduced ? 0.15 : 0.45)})`;
       ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
     }
     ctx.setTransform(k, 0, 0, k, 0, 0);
     this.drawBossBar(ctx, game, rt);
+  }
+
+  // Hand the finished scene to the WebGL post pass.
+  composite(game, rt, cam, zoom) {
+    const fx = game.fx, reduced = motion.reduced;
+    const cw = this.canvas.width, ch = this.canvas.height;
+    if (this.flashRGB.key !== fx.flashRGB) {
+      this.flashRGB = { key: fx.flashRGB, v: fx.flashRGB.split(',').map((n) => +n / 255) };
+    }
+    const waves = [];
+    if (!reduced) {
+      const sc = this.k * zoom / ch;
+      for (const w of fx.waves) {
+        const a = w.life / w.max;
+        const r = w.r0 + (w.r1 - w.r0) * easeOut(1 - a);
+        const p = cam.transformPoint({ x: w.x, y: w.y });
+        waves.push({ x: p.x / cw, y: 1 - p.y / ch, r: r * sc, w: (10 + r * 0.16) * sc, amp: w.amp * a * 0.03 });
+      }
+      waves.sort((a, b) => b.amp - a.amp);
+    }
+    const shake = fx.shakeMag;
+    this.post.render(this.canvas, {
+      time: rt,
+      bloom: this.q.bloom,
+      thr: 0.5,
+      bloomI: 0.78,
+      streakI: 0.55,
+      ca: reduced ? 0.0004 : 0.0005 + Math.min(0.006, shake * 0.0004) + fx.flashA * 0.005,
+      glitch: !reduced && shake > 4.5 ? Math.min(1, (shake - 4.5) / 12) : 0,
+      grain: 0.032,
+      vig: 0.62,
+      scanP: Math.max(2, Math.round(3 * this.dpr)),
+      scanH: Math.max(1, Math.round(this.dpr)),
+      scanA: 0.1,
+      flashA: fx.flashA * (reduced ? 0.15 : 0.42),
+      flashC: this.flashRGB.v,
+      waves,
+    });
   }
 
   // Firewall barrier across the bus. life: 1 → 0 as it expires; alpha < 1 for the ghost.
@@ -920,9 +1261,15 @@ export class Renderer {
         const d = (time * 150 + ((i + pi * 0.5) * L) / per) % L;
         const p = path.posAt(d);
         ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.angle);
-        ctx.fillStyle = rgba(PAL.grid, 0.9); ctx.fillRect(-5, -1, 10, 2);
+        if (!this.tailGrad) {
+          this.tailGrad = ctx.createLinearGradient(-34, 0, -3, 0);
+          this.tailGrad.addColorStop(0, rgba(PAL.grid, 0)); this.tailGrad.addColorStop(1, rgba(PAL.grid, 0.55));
+        }
+        ctx.fillStyle = this.tailGrad; ctx.fillRect(-34, -1, 31, 2);
+        ctx.fillStyle = rgba(PAL.grid, 0.95); ctx.fillRect(-5, -1, 10, 2);
+        ctx.fillStyle = '#ffffff'; ctx.fillRect(1, -0.6, 4, 1.2);
         ctx.restore();
-        sprite(ctx, glow(PAL.grid), p.x, p.y, 8, 0.4);
+        sprite(ctx, glow(PAL.grid), p.x, p.y, 8, 0.45);
       }
     });
     norm(ctx);
@@ -971,6 +1318,14 @@ export class Renderer {
     sprite(ctx, aura(col), 0, 0, 70 + Math.sin(rt * 2) * 5, 0.6 + fl * 0.4);
     norm(ctx);
 
+    // heartbeat: a square pulse expanding off the core
+    for (let i = 0; i < 2; i++) {
+      const hb = (rt * 0.55 + i * 0.5) % 1;
+      ctx.save(); ctx.rotate(Math.PI / 4);
+      ctx.strokeStyle = rgba(col, 0.45 * (1 - hb) ** 2); ctx.lineWidth = 0.6 + 1.4 * (1 - hb);
+      square(ctx, 20 + hb * 52); ctx.stroke();
+      ctx.restore();
+    }
     // targeting frame
     ctx.strokeStyle = rgba(col, 0.75); ctx.lineWidth = 1.3;
     brackets(ctx, 32, 9); ctx.stroke();
@@ -1022,6 +1377,8 @@ export class Renderer {
     for (const p of game.projectiles) {
       if (p.kind === 'bolt') {
         const nx = p.vx / p.speed, ny = p.vy / p.speed, len = 12 * p.size;
+        ctx.strokeStyle = rgba(p.color, 0.22); ctx.lineWidth = 1.4 * p.size;
+        ctx.beginPath(); ctx.moveTo(p.x - nx * len * 2.6, p.y - ny * len * 2.6); ctx.lineTo(p.x, p.y); ctx.stroke();
         ctx.strokeStyle = rgba(p.color, 0.9); ctx.lineWidth = 2.6 * p.size;
         ctx.beginPath(); ctx.moveTo(p.x - nx * len, p.y - ny * len); ctx.lineTo(p.x, p.y); ctx.stroke();
         ctx.strokeStyle = 'rgba(255,255,255,0.95)'; ctx.lineWidth = 1 * p.size;
@@ -1052,10 +1409,9 @@ export class Renderer {
     // normal-blend pass: smoke + debris
     for (const p of fx.parts) {
       if (p.kind === 'smoke') {
-        const a = p.life / p.max, s = p.size * (1 + (1 - a) * 1.8);
-        ctx.globalAlpha = a * 0.28;
-        ctx.fillStyle = p.color;
-        ctx.fillRect(p.x - s, p.y - s, s * 2, s * 2);
+        const a = p.life / p.max, s = p.size * (1 + (1 - a) * 2.2);
+        ctx.globalAlpha = 1;
+        sprite(ctx, puff(p.color), p.x, p.y, s * 1.9, a * 0.7);
       } else if (p.kind === 'debris') {
         ctx.globalAlpha = Math.min(1, (p.life / p.max) * 1.5);
         ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
@@ -1083,21 +1439,44 @@ export class Renderer {
         ctx.globalAlpha = a;
         ctx.strokeStyle = p.color; ctx.lineWidth = p.size;
         ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - p.vx * 0.035, p.y - p.vy * 0.035); ctx.stroke();
+      } else if (p.kind === 'shard') {
+        // glowing triangular fragment, tumbling
+        const s = p.size;
+        ctx.globalAlpha = Math.min(1, a * 1.4);
+        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+        ctx.beginPath(); ctx.moveTo(s, 0); ctx.lineTo(-s * 0.6, s * 0.55); ctx.lineTo(-s * 0.35, -s * 0.6); ctx.closePath();
+        ctx.fillStyle = rgba(p.color, 0.3); ctx.fill();
+        ctx.strokeStyle = p.color; ctx.lineWidth = 1; ctx.stroke();
+        ctx.restore();
+      } else if (p.kind === 'ember') {
+        // hot flickering speck with a soft halo
+        const fl = 0.55 + 0.45 * Math.sin(p.rot * 2.3);
+        ctx.globalAlpha = a * fl;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(p.x - p.size * 0.35, p.y - p.size * 0.35, p.size * 0.7, p.size * 0.7);
+        ctx.globalAlpha = 1;
+        sprite(ctx, glow(p.color), p.x, p.y, p.size * 3, a * fl * 0.7);
       }
     }
     ctx.globalAlpha = 1;
     for (const r of fx.rings) {
       const a = r.life / r.max, f = easeOut(1 - a);
-      ctx.strokeStyle = rgba(r.color, a * 0.9);
-      ctx.lineWidth = r.width * a + 0.5;
-      ctx.beginPath(); ctx.arc(r.x, r.y, Math.max(0.1, r.r0 + (r.r1 - r.r0) * f), 0, TAU); ctx.stroke();
+      const w = r.width * a + 0.5;
+      ctx.beginPath(); ctx.arc(r.x, r.y, Math.max(0.1, r.r0 + (r.r1 - r.r0) * f), 0, TAU);
+      ctx.strokeStyle = rgba(r.color, a * 0.2); ctx.lineWidth = w * 3.5; ctx.stroke();
+      ctx.strokeStyle = rgba(r.color, a * 0.9); ctx.lineWidth = w; ctx.stroke();
+      if (a > 0.5) { ctx.strokeStyle = rgba('#ffffff', (a - 0.5) * 1.6); ctx.lineWidth = Math.max(0.6, w * 0.35); ctx.stroke(); }
     }
+    ctx.lineCap = 'round';
     for (const b of fx.beams) {
       const a = b.life / b.max;
+      ctx.strokeStyle = rgba(b.color, a * 0.22); ctx.lineWidth = b.width * a * 2.6;
+      ctx.beginPath(); ctx.moveTo(b.x1, b.y1); ctx.lineTo(b.x2, b.y2); ctx.stroke();
       ctx.strokeStyle = rgba(b.color, a);
       ctx.lineWidth = b.width * a;
       ctx.beginPath(); ctx.moveTo(b.x1, b.y1); ctx.lineTo(b.x2, b.y2); ctx.stroke();
     }
+    ctx.lineCap = 'butt';
     ctx.lineJoin = 'miter';
     for (const l of fx.arcs) {
       const a = l.life / l.max;

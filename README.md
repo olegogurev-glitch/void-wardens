@@ -57,6 +57,15 @@ The start screen is a sector select with a difficulty picker. Your best result i
 
 The Hard and Nightmare bonuses **ramp through the run**: 30% of the bonus on wave 1, rising to the full value on the last wave. The opening stays fair while you have no economy, and the late game gets the pressure. Easy's reductions apply in full from the start. Extra enemies arrive in the same time window, so waves get denser rather than longer. Tune it all in `DIFFICULTIES` in `src/config.js`.
 
+## Graphics
+
+The scene is drawn with Canvas 2D, then composited through a WebGL post-processing pass (`src/post.js`): multi-scale bloom, anamorphic streaks on white-hot cores, shockwave refraction riding big blasts, chromatic aberration on impacts, scanlines, vignette and film grain. On top of that the renderer lights the grid dynamically around towers, enemies, projectiles and explosions, and draws enemy motion trails, drifting motes and soft bokeh.
+
+- Without WebGL, the game falls back to plain 2D with the same art and lighting (no bloom).
+- The renderer starts at the **high** tier and steps down on its own (**medium** → **low**) if frames average under ~40 fps.
+- Pin a tier with `?fx=low`, `?fx=medium` or `?fx=high`; force the 2D fallback with `?fx=2d`.
+- With the OS "reduce motion" setting, shake, refraction, glitch and flashes are toned down.
+
 ## Controls
 
 | Input | Action |

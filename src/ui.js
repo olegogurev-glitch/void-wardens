@@ -219,10 +219,17 @@ export class UI {
 
     const cr = Math.floor(g.credits);
     if (cr !== this.prev.credits) {
-      if (this.prev.credits !== undefined && cr > this.prev.credits) this.bump(e.creditsStat);
-      e.credits.textContent = fmt(cr);
+      if (this.prev.credits === undefined) this.shownCr = cr;
+      else if (cr > this.prev.credits) this.bump(e.creditsStat);
       this.prev.credits = cr;
       for (const type of TOWER_ORDER) this.cards[type].classList.toggle('disabled', cr < TOWERS[type].cost);
+    }
+    // the readout rolls toward the real balance instead of jumping
+    if (this.shownCr !== cr || this.shownTxt === undefined) {
+      const d = cr - this.shownCr;
+      this.shownCr = Math.abs(d) < 1 ? cr : this.shownCr + d * Math.min(1, dt * 11);
+      const v = Math.round(this.shownCr);
+      if (v !== this.shownTxt) { e.credits.textContent = fmt(v); this.shownTxt = v; }
     }
     if (g.wave !== this.prev.wave) { e.waveNum.textContent = g.wave; this.prev.wave = g.wave; }
     if (g.totalWaves !== this.prev.totalWaves) { e.waveTotal.textContent = g.totalWaves; this.prev.totalWaves = g.totalWaves; }
@@ -365,7 +372,7 @@ export class UI {
   banner(title, sub = '', color = '#8b6cff') {
     const b = this.els.banner;
     b.style.setProperty('--bc', color);
-    b.innerHTML = `<div class="b-title">${title}</div>${sub ? `<div class="b-sub">${sub}</div>` : ''}`;
+    b.innerHTML = `<div class="b-rule"></div><div class="b-title">${title}</div>${sub ? `<div class="b-sub">${sub}</div>` : ''}<div class="b-rule"></div>`;
     this.bump(b, 'show');
   }
 
