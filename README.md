@@ -8,36 +8,54 @@ Pure HTML5 Canvas + vanilla JS modules, with no dependencies and no build step. 
 
 ## Run locally
 
-ES modules need to be served over HTTP (opening `index.html` as a file won't work):
+The game is made of ES modules, which browsers won't load from a page opened as a file, so double-clicking `index.html` doesn't work. Serve the folder instead:
 
 ```bash
-python3 -m http.server 5173
+node tools/serve.mjs
 ```
 
-Then open http://localhost:5173. Add `?debug` to expose `window.VW` (`game`, `view`, `ctl`, `music`, …) in the console.
+Then open http://localhost:5173 and stop the server with Ctrl+C. This dev server tells the browser never to cache, so your edits always show up on reload; `python3 -m http.server` would serve stale files. Add `?debug` to the URL to expose `window.VW` (`game`, `view`, `ctl`, `music`, …) in the console.
 
 **Balance check.** After changing anything in `src/config.js` or `src/maps.js`, run:
 
 ```bash
-node tools/sim.mjs 3 sector-01
+node tools/sim.mjs 3 sector-01 normal
 ```
 
 ```bash
-node tools/sim.mjs 3 sector-02
+node tools/sim.mjs 3 sector-02 hard
 ```
 
-Bots play the real game logic and report wins and Core integrity after each wave. Current baseline: about 25% of bot games won on Sector 01 and about 15% on Sector 02. In both sectors, single-tower builds lose and diverse upgraded builds win.
+Bots play the real game logic and report wins and Core integrity after each wave. Bots don't use abilities or targeting modes, so they are weaker than a real player.
 
-## Sectors
+| Bot games won (all strategies) | Easy | Normal | Hard | Nightmare |
+|---|---|---|---|---|
+| Sector 01 | ~75% | ~25% | 0% (best builds ~25%) | 0% (die ~wave 6) |
+| Sector 02 | ~65% | ~15% | 0% (best builds ~6%) | 0% (die ~wave 7) |
 
-The start screen is a sector select. It remembers your best result per sector in the browser: 1–3 stars for a win, or the furthest wave reached.
+## Deploying (e.g. to Pixo)
+
+1. Run `node tools/stamp.mjs`. It adds a content fingerprint to every file `index.html` loads (`config.js?v=3f9a…`, via an import map). Browsers then fetch exactly the files that changed, so players never get a broken mix of old and new modules after an update. Run it after every change you deploy; it's safe to run repeatedly.
+2. Upload `index.html`, `css/` and `src/` as they are. The game also works inside an `<iframe>`.
+3. Make sure the host doesn't cache `index.html` itself for long. Most hosts revalidate HTML by default. The fingerprinted JS and CSS can be cached forever.
+
+## Sectors and difficulty
+
+The start screen is a sector select with a difficulty picker. Your best result is saved in the browser for each sector and difficulty: 1–3 stars for a win (by share of Core integrity left), or the furthest wave reached.
 
 | Sector | Layout | Waves | Notes |
 |---|---|---|---|
-| **01 · Serpent Bus** (Standard) | 1 breach, long winding route | 10 | Glitches, Trojans, Leviathan.exe boss |
-| **02 · Twin Breach** (Hard) | 2 breaches merging into one trunk | 12 | Adds Worms, Ciphers, Rootkits and Patchers |
+| **01 · Serpent Bus** (Intro) | 1 breach, long winding route | 10 | Glitches, Trojans, Leviathan.exe boss |
+| **02 · Twin Breach** (Advanced) | 2 breaches merging into one trunk | 12 | Adds Worms, Ciphers, Rootkits and Patchers |
 
-**To embed it on the Pixo site**, upload the folder as-is: `index.html`, `css/` and `src/`. It also works inside an `<iframe>`.
+| Difficulty | Enemies | Enemy HP | Credits per kill | Core |
+|---|---|---|---|---|
+| **Easy** | −20% | −15% | +15% | 25 |
+| **Normal** | — | — | — | 20 |
+| **Hard** | up to +30% | up to +15% | −10% | 20 |
+| **Nightmare** | up to +60% | up to +35% | −20% | 15 |
+
+The Hard and Nightmare bonuses **ramp through the run**: 30% of the bonus on wave 1, rising to the full value on the last wave. The opening stays fair while you have no economy, and the late game gets the pressure. Easy's reductions apply in full from the start. Extra enemies arrive in the same time window, so waves get denser rather than longer. Tune it all in `DIFFICULTIES` in `src/config.js`.
 
 ## Controls
 
@@ -102,6 +120,8 @@ src/ui.js         DOM HUD, dock, evolution panel, banners
 src/audio.js      WebAudio-synthesized sound effects
 src/music.js      adaptive procedural synthwave soundtrack
 tools/sim.mjs     headless balance simulator (bots play the real logic)
+tools/serve.mjs   no-cache local dev server
+tools/stamp.mjs   cache-busting fingerprints for deploys
 src/main.js       bootstrap, input, game loop
 ```
 

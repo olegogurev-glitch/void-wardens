@@ -2,7 +2,7 @@
 // and sounds are requested through the 'sfx' event.
 import {
   TILE, WORLD_W, WORLD_H, ENEMIES, TOWERS,
-  ABILITIES, START_CREDITS, START_LIVES, BREAK_TIME, SELL_RATIO, EARLY_BONUS_PER_SEC,
+  ABILITIES, DIFFICULTIES, difficultyOf, START_CREDITS, START_LIVES, BREAK_TIME, SELL_RATIO, EARLY_BONUS_PER_SEC,
   waveHpMult, waveClearBonus, towerStats, upgradeOptions,
 } from './config.js';
 import { FX } from './fx.js';
@@ -18,12 +18,36 @@ export function turnTowards(a, b, max) {
 }
 
 export class Game {
-  constructor(map) {
+  constructor(map, difficulty = 'normal') {
     this.map = map;
+    this.difficulty = difficulty;
     this.fx = new FX();
     this.handlers = {};
     this.reset();
   }
+
+  get diff() { return difficultyOf(this.difficulty); }
+
+  setDifficulty(key) {
+    this.difficulty = DIFFICULTIES[key] ? key : 'normal';
+    this.reset();
+  }
+
+  // Difficulty bonus ramps through the run: 30% of it on wave 1, the full value on the
+  // last wave. Early waves stay fair (no economy yet); late waves get the real pressure.
+  // (Easy's reductions apply in full from the start — the opening is where new players struggle.)
+  diffFactor(key, w = this.wave) {
+    if (this.diff[key] <= 1) return this.diff[key];
+    const r = 0.3 + 0.7 * Math.max(0, w - 1) / Math.max(1, this.totalWaves - 1);
+    return 1 + (this.diff[key] - 1) * Math.min(1, r);
+  }
+
+  // Enemies per group after difficulty scaling (a lone boss stays alone)
+  scaledCount(type, count, w = this.wave) {
+    return ENEMIES[type].boss ? count : Math.max(1, Math.round(count * this.diffFactor('count', w)));
+  }
+
+  rewardFor(e) { return Math.max(1, Math.round(e.def.reward * this.diff.reward)); }
 
   on(ev, fn) { (this.handlers[ev] ||= []).push(fn); }
   emit(ev, arg) { const h = this.handlers[ev]; if (h) for (const f of h) f(arg); }
@@ -38,7 +62,8 @@ export class Game {
     const def = this.map.def;
     this.waves = def.waves;
     this.credits = def.startCredits ?? START_CREDITS;
-    this.lives = START_LIVES;
+    this.maxLives = this.diff.lives ?? START_LIVES;
+    this.lives = this.maxLives;
     this.wave = 0;
     this.totalWaves = this.waves.length;
     this.spawnLater = [];
@@ -79,9 +104,12 @@ export class Game {
     const q = [];
     const nPaths = this.map.paths.length;
     for (const [type, count, interval, delay, path = 0] of this.waves[this.wave - 1]) {
-      for (let i = 0; i < count; i++) {
+      // more enemies arrive in the same time window → denser waves on higher difficulties
+      const n = this.scaledCount(type, count);
+      const step = interval * (count / n);
+      for (let i = 0; i < n; i++) {
         const p = path === 'alt' ? i % nPaths : Math.min(path, nPaths - 1);
-        q.push({ t: delay + i * interval, type, mult, path: p });
+        q.push({ t: delay + i * step, type, mult, path: p });
       }
     }
     q.sort((a, b) => a.t - b.t);
@@ -146,7 +174,7 @@ export class Game {
   // ── Enemies ──────────────────────────────────────────────
   spawn(type, mult, path = 0, d = 0) {
     const def = ENEMIES[type];
-    const maxHp = def.hp * (def.boss ? 1 : mult);
+    const maxHp = def.hp * (def.boss ? 1 : mult) * this.diffFactor('hp');
     const e = {
       id: this.nextId++, type, def, maxHp, hp: maxHp, mult,
       path, d, lane: def.boss ? 0 : rand(-7, 7),
@@ -316,9 +344,10 @@ export class Game {
   kill(e) {
     e.dead = true;
     this.kills++;
-    this.credits += e.def.reward;
+    const reward = this.rewardFor(e);
+    this.credits += reward;
     const fx = this.fx, col = e.def.color;
-    fx.text(e.x, e.y - e.radius - 4, '+' + e.def.reward, '#ffb800', e.def.boss ? 22 : 12);
+    fx.text(e.x, e.y - e.radius - 4, '+' + reward, '#ffb800', e.def.boss ? 22 : 12);
     if (e.def.split) {
       const { type, count } = e.def.split;
       for (let i = 0; i < count; i++) this.spawnLater.push({ type, mult: e.mult, path: e.path, d: Math.max(1, e.d - i * 12) });

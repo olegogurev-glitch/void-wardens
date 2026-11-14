@@ -14,7 +14,7 @@ export const MAPS = [
     id: 'sector-01',
     name: 'Sector 01',
     title: 'Serpent Bus',
-    difficulty: 'Standard',
+    difficulty: 'Intro',
     desc: 'One breach, one long winding data bus. Learn the towers.',
     startCredits: 260,
     paths: [
@@ -37,7 +37,7 @@ export const MAPS = [
     id: 'sector-02',
     name: 'Sector 02',
     title: 'Twin Breach',
-    difficulty: 'Hard',
+    difficulty: 'Advanced',
     desc: 'Two breaches feed one trunk line. New malware: Worms, Ciphers, Rootkits, Patchers.',
     startCredits: 320,
     hpCurve: [0.16, 0.028], // 12 waves → gentler growth than Sector 01's default

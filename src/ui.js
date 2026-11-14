@@ -1,5 +1,5 @@
 // DOM HUD: top stats, tower dock, tower panel with upgrade choices, banners, overlays.
-import { TOWERS, TOWER_ORDER, ENEMIES, START_LIVES, SELL_RATIO, WORLD_W, ABILITIES, ABILITY_ORDER, towerStats, upgradeOptions, pathNames, waveHpMult } from './config.js';
+import { TOWERS, TOWER_ORDER, ENEMIES, START_LIVES, SELL_RATIO, WORLD_W, ABILITIES, ABILITY_ORDER, DIFFICULTIES, DIFFICULTY_ORDER, towerStats, upgradeOptions, pathNames, waveHpMult } from './config.js';
 import { drawTower } from './render.js';
 import { TARGET_MODES } from './game.js';
 
@@ -59,9 +59,9 @@ function diffLine(a, b) {
   return out.join('');
 }
 
-export function describeWave(waves, w) {
+export function describeWave(game, w) {
   const counts = {};
-  for (const [type, n] of waves[w - 1]) counts[type] = (counts[type] || 0) + n;
+  for (const [type, n] of game.waves[w - 1]) counts[type] = (counts[type] || 0) + game.scaledCount(type, n, w);
   return Object.entries(counts).map(([type, n]) => {
     const d = ENEMIES[type];
     return d.boss ? d.name : `${n} ${n > 1 ? d.plural : d.name}`;
@@ -226,11 +226,16 @@ export class UI {
     }
     if (g.wave !== this.prev.wave) { e.waveNum.textContent = g.wave; this.prev.wave = g.wave; }
     if (g.totalWaves !== this.prev.totalWaves) { e.waveTotal.textContent = g.totalWaves; this.prev.totalWaves = g.totalWaves; }
+    if (g.difficulty !== this.prev.difficulty) {
+      const d = g.diff;
+      e.waveNum.closest('.stat').querySelector('label').innerHTML = `Wave <span class="diff-tag" style="--c:${d.color}">${d.name}</span>`;
+      this.prev.difficulty = g.difficulty;
+    }
     if (g.lives !== this.prev.lives) {
       if (this.prev.lives !== undefined && g.lives < this.prev.lives) this.bump(e.livesStat, 'hit');
       e.lives.textContent = g.lives;
-      e.livesBar.style.width = (g.lives / START_LIVES) * 100 + '%';
-      e.livesStat.classList.toggle('low', g.lives <= START_LIVES * 0.3);
+      e.livesBar.style.width = (g.lives / g.maxLives) * 100 + '%';
+      e.livesStat.classList.toggle('low', g.lives <= g.maxLives * 0.3);
       this.prev.lives = g.lives;
     }
     this.updateAbilities();
@@ -263,13 +268,13 @@ export class UI {
   nextWavePreview(w) {
     if (w > this.game.waves.length) return '';
     const counts = {};
-    for (const [type, n] of this.game.waves[w - 1]) counts[type] = (counts[type] || 0) + n;
+    for (const [type, n] of this.game.waves[w - 1]) counts[type] = (counts[type] || 0) + this.game.scaledCount(type, n, w);
     const items = Object.entries(counts).map(([type, n]) => {
       const d = ENEMIES[type];
       const label = d.boss ? d.name : `<b>${n}</b> ${n > 1 ? d.plural : d.name}`;
       return `<span class="nw-item" style="--c:${d.color}"><i class="ico ${type}"></i>${label}<em>${d.trait}</em></span>`;
     }).join('');
-    const hp = waveHpMult(w, this.game.map.def.hpCurve);
+    const hp = waveHpMult(w, this.game.map.def.hpCurve) * this.game.diffFactor('hp', w);
     return `<div class="next-wave"><span class="nw-label">Next</span>${items}${hp > 1.05 ? `<span class="nw-hp">HP ×${hp.toFixed(1)}</span>` : ''}</div>`;
   }
 
@@ -371,13 +376,18 @@ export class UI {
     const again = `<div class="ov-actions"><button class="btn-primary hudbox" data-act="restart">%s</button>
         <button class="btn-ghost" data-act="menu">Sectors</button></div>`;
     if (kind === 'start') {
-      const { maps, records = {}, current } = data;
+      const { maps, records = {}, current, difficulty = 'normal' } = data;
+      const D = DIFFICULTIES[difficulty];
+      const picker = `<div class="diff-pick">
+          <div class="dp-seg">${DIFFICULTY_ORDER.map((k) => `<button class="dp${k === difficulty ? ' on' : ''}" data-act="difficulty" data-arg="${k}" style="--c:${DIFFICULTIES[k].color}">${DIFFICULTIES[k].name}</button>`).join('')}</div>
+          <div class="dp-desc" style="--c:${D.color}">${D.desc}</div>
+        </div>`;
       const cards = maps.map((m) => {
         const rec = records[m.id];
         const recHtml = !rec ? '<span class="s-none">No record</span>'
           : rec.stars ? `${stars(rec.stars)}<span>Secured</span>`
           : `<span>Best: wave ${rec.wave}/${m.waves.length}</span>`;
-        const hot = m.difficulty === 'Hard';
+        const hot = m.difficulty === 'Advanced';
         return `<button class="sector hudbox${m.id === current ? ' sel' : ''}" data-act="start" data-arg="${m.id}" style="--c:${hot ? '#ff2a6d' : '#00e5ff'}">
           <span class="s-top"><span class="s-name">${m.name}</span><span class="s-diff">${m.difficulty}</span></span>
           <span class="s-title">${m.title}</span>
@@ -390,6 +400,7 @@ export class UI {
         <div class="ov-kicker">Pixo Arcade // Tower Defense</div>
         <h1 class="ov-title glitch" data-text="VOID//WARDENS">VOID<span class="sl">//</span>WARDENS</h1>
         <p class="ov-tag">A breach has opened in the grid. Hostile code is pouring through. Keep it away from the Core.</p>
+        ${picker}
         <div class="sectors">${cards}</div>
         <div class="ov-help">
           <div><b>1–4</b> Pick a tower, click an empty tile to deploy</div>
@@ -401,12 +412,12 @@ export class UI {
         <button class="btn-primary hudbox" data-act="resume">Resume</button>
         <div class="ov-actions"><button class="btn-ghost" data-act="restart">Restart</button><button class="btn-ghost" data-act="menu">Sectors</button></div></div>`;
     } else if (kind === 'win') {
-      html = `<div class="ov-card win"><div class="ov-kicker">${data.sector} · Breach sealed</div><h2 class="ov-h2 glitch" data-text="System secure">System secure</h2>
+      html = `<div class="ov-card win"><div class="ov-kicker">${data.sector} · ${data.diff.name} · Breach sealed</div><h2 class="ov-h2 glitch" data-text="System secure">System secure</h2>
         <div class="ov-stars">${stars(data.stars)}</div>
-        <div class="ov-stats"><div><label>Core</label><b>${data.lives}/${START_LIVES}</b></div><div><label>Kills</label><b>${data.kills}</b></div><div><label>Towers</label><b>${data.towers}</b></div></div>
+        <div class="ov-stats"><div><label>Core</label><b>${data.lives}/${data.maxLives}</b></div><div><label>Kills</label><b>${data.kills}</b></div><div><label>Towers</label><b>${data.towers}</b></div></div>
         ${again.replace('%s', 'Play again')}</div>`;
     } else if (kind === 'lose') {
-      html = `<div class="ov-card lose"><div class="ov-kicker">${data.sector} · Core compromised</div><h2 class="ov-h2 glitch" data-text="System breached">System breached</h2>
+      html = `<div class="ov-card lose"><div class="ov-kicker">${data.sector} · ${data.diff.name} · Core compromised</div><h2 class="ov-h2 glitch" data-text="System breached">System breached</h2>
         <div class="ov-stats"><div><label>Reached</label><b>Wave ${data.wave}</b></div><div><label>Kills</label><b>${data.kills}</b></div></div>
         ${again.replace('%s', 'Reboot')}</div>`;
     }

@@ -2,6 +2,7 @@
 //
 //   node tools/sim.mjs                  # sector-01, all strategies, 3 runs each
 //   node tools/sim.mjs 10 sector-02     # 10 runs each on Sector 02
+//   node tools/sim.mjs 5 sector-02 hard # on a difficulty: easy / normal / hard / nightmare
 //
 // Output per strategy × upgrade policy: result, waves reached, and Core integrity after
 // each wave. A healthy curve: one-tower spam and no-upgrade play lose; mixed, upgraded
@@ -17,8 +18,9 @@ const { TOWERS, COLS, ROWS, TILE, towerStats, upgradeOptions } = await import(SR
 
 const RUNS = Number(process.argv[2]) || 3;
 const def = mapById(process.argv[3] || 'sector-01');
+const DIFF = process.argv[4] || 'normal';
 const map = new GameMap(def);
-console.log(`${def.name} · ${def.title} — ${def.waves.length} waves\n`);
+console.log(`${def.name} · ${def.title} — ${def.waves.length} waves — ${DIFF}\n`);
 const samples = [];
 for (const path of map.paths) for (let d = 0; d < path.length; d += 10) samples.push(path.posAt(d));
 const tiles = [];
@@ -29,7 +31,7 @@ const coverage = (c, r, range) => {
 };
 
 function run(strategy, upgradeMode) {
-  const game = new Game(map);
+  const game = new Game(map, DIFF);
   const lives = [];
   let think = 0, built = 0;
   game.startWave();

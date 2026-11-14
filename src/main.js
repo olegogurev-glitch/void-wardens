@@ -1,5 +1,5 @@
 // Bootstrap: wires the simulation, renderer, UI, audio and input together.
-import { WORLD_W, WORLD_H, TILE, TOWERS, TOWER_ORDER, towerStats } from './config.js';
+import { WORLD_W, WORLD_H, TILE, TOWERS, TOWER_ORDER, DIFFICULTIES, towerStats } from './config.js';
 import { GameMap } from './map.js';
 import { Game, TARGET_MODES } from './game.js';
 import { Renderer, motion } from './render.js';
@@ -18,7 +18,7 @@ const store = {
 };
 
 let mapDef = mapById(store.get('sector'));
-const game = new Game(new GameMap(mapDef));
+const game = new Game(new GameMap(mapDef), DIFFICULTIES[store.get('difficulty')] ? store.get('difficulty') : 'normal');
 const sfx = new Sfx();
 const music = new Music(sfx);
 const renderer = new Renderer(canvas, game.map);
@@ -32,18 +32,26 @@ function loadSector(id) {
   renderer.setMap(map);
 }
 
-// Best result per sector: { stars } once secured, otherwise { wave } reached
-function records() {
+// Best result per sector and difficulty: { stars } once secured, otherwise { wave } reached.
+// Records saved before difficulties existed (key without a difficulty) count as Normal.
+const recordKey = (id, diff) => `best.${id}.${diff}`;
+function records(diff = game.difficulty) {
   const out = {};
-  for (const m of MAPS) { try { const r = JSON.parse(store.get('best.' + m.id)); if (r) out[m.id] = r; } catch { /* ignore */ } }
+  for (const m of MAPS) {
+    let raw = store.get(recordKey(m.id, diff));
+    if (!raw && diff === 'normal') raw = store.get('best.' + m.id);
+    try { const r = JSON.parse(raw); if (r) out[m.id] = r; } catch { /* ignore */ }
+  }
   return out;
 }
 function saveRecord(result) {
   const prev = records()[mapDef.id];
   const better = !prev || (result.stars || 0) > (prev.stars || 0) || (!prev.stars && !result.stars && result.wave > prev.wave);
-  if (better) store.set('best.' + mapDef.id, JSON.stringify(result));
+  if (better) store.set(recordKey(mapDef.id, game.difficulty), JSON.stringify(result));
 }
-const starsFor = (lives) => (lives >= 18 ? 3 : lives >= 10 ? 2 : 1);
+// stars by share of Core integrity left (difficulties have different maximums)
+const starsFor = (lives, max) => (lives >= max * 0.9 ? 3 : lives >= max * 0.5 ? 2 : 1);
+const menuData = () => ({ maps: MAPS, records: records(), current: mapDef.id, difficulty: game.difficulty });
 
 const view = {
   placing: null, placingStats: null, hover: null, selected: null, previewStats: null,
@@ -149,7 +157,16 @@ const ctl = {
     ui.els.pause.classList.remove('on');
     view.started = true;
     ui.hideOverlay();
-    ui.banner(`${mapDef.name} · ${mapDef.title}`, 'Deploy towers, then run wave 1', mapDef.difficulty === 'Hard' ? '#ff2a6d' : '#00e5ff');
+    ui.banner(`${mapDef.name} · ${mapDef.title}`, `${game.diff.name} · Deploy towers, then run wave 1`, game.diff.color);
+  },
+  // pick a difficulty on the start screen
+  difficulty(key) {
+    if (view.started || !DIFFICULTIES[key] || key === game.difficulty) return;
+    game.setDifficulty(key);
+    store.set('difficulty', key);
+    sfx.unlock();
+    sfx.play('click');
+    ui.showOverlay('start', menuData());
   },
   // back to sector select
   menu() {
@@ -159,7 +176,7 @@ const ctl = {
     music.duck(false);
     game.reset();
     ui.reset();
-    ui.showOverlay('start', { maps: MAPS, records: records(), current: mapDef.id });
+    ui.showOverlay('start', menuData());
   },
   preview(id) {
     if (!view.started && id) loadSector(id);
@@ -175,19 +192,19 @@ ui.els.music.classList.toggle('off', !view.musicOn);
 game.on('sfx', (n) => sfx.play(n));
 game.on('wave', (w) => {
   const final = w === game.waves.length;
-  ui.banner(final ? 'Final wave' : `Wave ${String(w).padStart(2, '0')}`, final ? 'Leviathan.exe detected' : describeWave(game.waves, w) + ' inbound', final ? '#ff2a6d' : '#00e5ff');
+  ui.banner(final ? 'Final wave' : `Wave ${String(w).padStart(2, '0')}`, final ? 'Leviathan.exe detected' : describeWave(game, w) + ' inbound', final ? '#ff2a6d' : '#00e5ff');
 });
 game.on('cleared', ({ bonus }) => ui.banner('Wave purged', `+${bonus} credits`, '#3dff9e'));
 game.on('bossDown', () => setTimeout(() => ui.banner('Leviathan.exe terminated', '', '#ffb800'), 1200));
 game.on('win', () => {
-  const stars = starsFor(game.lives);
+  const stars = starsFor(game.lives, game.maxLives);
   saveRecord({ stars, wave: game.wave });
-  setTimeout(() => ui.showOverlay('win', { lives: game.lives, kills: game.kills, towers: game.towers.length, stars, sector: mapDef.name }), 1800);
+  setTimeout(() => ui.showOverlay('win', { lives: game.lives, maxLives: game.maxLives, kills: game.kills, towers: game.towers.length, stars, sector: mapDef.name, diff: game.diff }), 1800);
 });
 game.on('lose', () => {
   view.placing = null; view.selected = null;
   saveRecord({ wave: game.wave });
-  setTimeout(() => ui.showOverlay('lose', { wave: game.wave, kills: game.kills, sector: mapDef.name }), 1800);
+  setTimeout(() => ui.showOverlay('lose', { wave: game.wave, kills: game.kills, sector: mapDef.name, diff: game.diff }), 1800);
 });
 
 // ── Layout ───────────────────────────────────────────────
@@ -295,7 +312,7 @@ function frame(now) {
 }
 requestAnimationFrame(frame);
 
-ui.showOverlay('start', { maps: MAPS, records: records(), current: mapDef.id });
+ui.showOverlay('start', menuData());
 
 if (new URLSearchParams(location.search).has('debug')) window.VW = { game, view, ctl, ui, renderer, sfx, music };
 

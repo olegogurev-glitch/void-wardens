@@ -1,6 +1,6 @@
 // Canvas renderer — cyber-grid theme (Tron / Blade Runner minimalism).
 // Everything is procedural: neon line-art on near-black, no image assets.
-import { WORLD_W, WORLD_H, TILE, COLS, ROWS, TOWERS, START_LIVES } from './config.js';
+import { WORLD_W, WORLD_H, TILE, COLS, ROWS, TOWERS } from './config.js';
 
 const TAU = Math.PI * 2;
 export const PAL = {
@@ -962,7 +962,7 @@ export class Renderer {
   }
 
   drawCore(ctx, C, rt, game) {
-    const health = game.lives / START_LIVES;
+    const health = game.lives / game.maxLives;
     const col = lerpColor(PAL.hostile, PAL.grid, health);
     const fl = game.coreFlash;
     ctx.save();

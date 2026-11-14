@@ -21,6 +21,21 @@ export const waveClearBonus = (w) => 25 + w * 10;
 // enemy HP multiplier for wave w; sectors can pass their own [linear, quadratic] curve
 export const waveHpMult = (w, [a, b] = [0.24, 0.045]) => 1 + a * (w - 1) + b * (w - 1) ** 2;
 
+// ── Difficulty ──────────────────────────────────────────────
+// count:  enemies per group (spawn interval shrinks to match → denser, not longer, waves)
+// count/hp bonuses above 1 ramp from 30% on wave 1 to 100% on the last wave (Game.diffFactor)
+// hp:     enemy HP multiplier (bosses included)
+// reward: credits per kill (so extra enemies don't fund their own defense)
+// lives:  Core integrity
+export const DIFFICULTIES = {
+  easy: { name: 'Easy', color: '#3dff9e', count: 0.8, hp: 0.85, reward: 1.15, lives: 25, desc: 'Thinner, weaker waves. Learn the towers.' },
+  normal: { name: 'Normal', color: '#00e5ff', count: 1, hp: 1, reward: 1, lives: 20, desc: 'The standard balance.' },
+  hard: { name: 'Hard', color: '#ffb800', count: 1.3, hp: 1.15, reward: 0.9, lives: 20, desc: 'Waves swell to +30% enemies with +15% HP by the end. Every tower must earn its slot.' },
+  nightmare: { name: 'Nightmare', color: '#ff2a6d', count: 1.6, hp: 1.35, reward: 0.8, lives: 15, desc: 'Up to +60% enemies at +35% HP, only 15 Core integrity. Abilities required.' },
+};
+export const DIFFICULTY_ORDER = ['easy', 'normal', 'hard', 'nightmare'];
+export const difficultyOf = (key) => DIFFICULTIES[key] || DIFFICULTIES.normal;
+
 // ── Player abilities ────────────────────────────────────────
 // Cooldowns run on game time and start ready.
 export const ABILITIES = {
