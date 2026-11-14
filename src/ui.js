@@ -1,6 +1,14 @@
 // DOM HUD: top stats, tower dock, tower panel with upgrade choices, banners, overlays.
-import { TOWERS, TOWER_ORDER, ENEMIES, WAVES, START_LIVES, SELL_RATIO, WORLD_W, towerStats, upgradeOptions, pathNames } from './config.js';
+import { TOWERS, TOWER_ORDER, ENEMIES, START_LIVES, SELL_RATIO, WORLD_W, towerStats, upgradeOptions, pathNames, waveHpMult } from './config.js';
 import { drawTower } from './render.js';
+import { TARGET_MODES } from './game.js';
+
+const TARGET_HINTS = {
+  first: 'Furthest along the path',
+  last: 'Newest arrival',
+  strong: 'Most HP remaining',
+  close: 'Nearest to the tower',
+};
 
 const $ = (id) => document.getElementById(id);
 const fmt = (n) => Math.round(n).toLocaleString('en-US');
@@ -43,9 +51,9 @@ function diffLine(a, b) {
   return out.join('');
 }
 
-export function describeWave(w) {
+export function describeWave(waves, w) {
   const counts = {};
-  for (const [type, n] of WAVES[w - 1]) counts[type] = (counts[type] || 0) + n;
+  for (const [type, n] of waves[w - 1]) counts[type] = (counts[type] || 0) + n;
   return Object.entries(counts).map(([type, n]) => {
     const d = ENEMIES[type];
     return d.boss ? d.name : `${n} ${n > 1 ? d.plural : d.name}`;
@@ -61,13 +69,13 @@ export class UI {
       credits: $('credits'), creditsStat: $('stat-credits'), waveNum: $('wave-num'), waveTotal: $('wave-total'),
       lives: $('lives'), livesBar: $('lives-bar'), livesStat: $('stat-lives'),
       dock: $('dock'), panel: $('panel'), banner: $('banner'), cta: $('wave-cta'), overlay: $('overlay'),
-      tooltip: $('tooltip'), speed: $('btn-speed'), pause: $('btn-pause'), mute: $('btn-mute'), viewport: $('viewport'),
+      tooltip: $('tooltip'), speed: $('btn-speed'), pause: $('btn-pause'), mute: $('btn-mute'), music: $('btn-music'), viewport: $('viewport'),
     };
     this.cards = {};
     this.prev = {};
     this.panelKey = '';
     this.liveT = 0;
-    this.els.waveTotal.textContent = WAVES.length;
+    // wave total is set per sector in update()
     this.buildDock();
     this.bind();
   }
@@ -118,10 +126,16 @@ export class UI {
     e.speed.onclick = () => this.ctl.toggleSpeed();
     e.pause.onclick = () => this.ctl.togglePause();
     e.mute.onclick = () => this.ctl.toggleMute();
+    e.music.onclick = () => this.ctl.toggleMusic();
     e.cta.addEventListener('click', (ev) => { if (ev.target.closest('[data-act="wave"]')) this.ctl.startWave(); });
     e.overlay.addEventListener('click', (ev) => {
       const b = ev.target.closest('[data-act]');
-      if (b) this.ctl[b.dataset.act]?.();
+      if (b) this.ctl[b.dataset.act]?.(b.dataset.arg);
+    });
+    // hovering a sector card previews its map behind the menu
+    e.overlay.addEventListener('pointerover', (ev) => {
+      const card = ev.target.closest('.sector');
+      if (card) this.ctl.preview?.(card.dataset.arg);
     });
     e.panel.addEventListener('click', (ev) => {
       const b = ev.target.closest('[data-act]');
@@ -129,6 +143,7 @@ export class UI {
       const act = b.dataset.act;
       if (act === 'upgrade') this.ctl.upgrade(+b.dataset.i);
       else if (act === 'sell') this.ctl.sell();
+      else if (act === 'target') this.ctl.target(b.dataset.mode);
       else if (act === 'close') this.ctl.select(null);
     });
     e.panel.addEventListener('pointerover', (ev) => {
@@ -156,6 +171,7 @@ export class UI {
       for (const type of TOWER_ORDER) this.cards[type].classList.toggle('disabled', cr < TOWERS[type].cost);
     }
     if (g.wave !== this.prev.wave) { e.waveNum.textContent = g.wave; this.prev.wave = g.wave; }
+    if (g.totalWaves !== this.prev.totalWaves) { e.waveTotal.textContent = g.totalWaves; this.prev.totalWaves = g.totalWaves; }
     if (g.lives !== this.prev.lives) {
       if (this.prev.lives !== undefined && g.lives < this.prev.lives) this.bump(e.livesStat, 'hit');
       e.lives.textContent = g.lives;
@@ -178,14 +194,28 @@ export class UI {
       this.prev.cta = key;
       const next = g.wave + 1;
       if (key === 'none') e.cta.innerHTML = '';
-      else if (g.state === 'ready') e.cta.innerHTML = `<button class="cta hudbox pulse" data-act="wave"><span class="tri"></span>Run wave ${next}<kbd>Space</kbd></button>`;
+      else if (g.state === 'ready') e.cta.innerHTML = this.nextWavePreview(next) + `<button class="cta hudbox pulse" data-act="wave"><span class="tri"></span>Run wave ${next}<kbd>Space</kbd></button>`;
       else if (g.state === 'break') {
         const s = Math.ceil(g.breakTimer);
-        e.cta.innerHTML = `<button class="cta hudbox" data-act="wave"><span class="tri"></span>Wave ${next} in ${s}s · Run now <span class="bonus">+${s * 3}${CR}</span></button>`;
+        e.cta.innerHTML = this.nextWavePreview(next) + `<button class="cta hudbox" data-act="wave"><span class="tri"></span>Wave ${next} in ${s}s · Run now <span class="bonus">+${s * 3}${CR}</span></button>`;
       } else e.cta.innerHTML = `<div class="cta-info"><span class="dot"></span>Wave ${g.wave} · <b>${g.hostilesLeft}</b> threats</div>`;
     }
 
     this.updatePanel(dt);
+  }
+
+  // What's coming next — shown between waves so saving vs. upgrading is an informed choice
+  nextWavePreview(w) {
+    if (w > this.game.waves.length) return '';
+    const counts = {};
+    for (const [type, n] of this.game.waves[w - 1]) counts[type] = (counts[type] || 0) + n;
+    const items = Object.entries(counts).map(([type, n]) => {
+      const d = ENEMIES[type];
+      const label = d.boss ? d.name : `<b>${n}</b> ${n > 1 ? d.plural : d.name}`;
+      return `<span class="nw-item" style="--c:${d.color}"><i class="ico ${type}"></i>${label}<em>${d.trait}</em></span>`;
+    }).join('');
+    const hp = waveHpMult(w, this.game.map.def.hpCurve);
+    return `<div class="next-wave"><span class="nw-label">Next</span>${items}${hp > 1.05 ? `<span class="nw-hp">HP ×${hp.toFixed(1)}</span>` : ''}</div>`;
   }
 
   // ── Tower panel ─────────────────────────────────────────
@@ -197,12 +227,15 @@ export class UI {
       return;
     }
     const opts = upgradeOptions(t.type, t.path);
-    const key = t.id + ':' + t.level + ':' + opts.map((o) => (this.game.credits >= o.cost ? 1 : 0)).join('');
+    const arm = this.view.sellArm;
+    if (arm && performance.now() > arm.until) this.view.sellArm = null;
+    const armed = !!(this.view.sellArm && this.view.sellArm.id === t.id);
+    const key = t.id + ':' + t.level + ':' + opts.map((o) => (this.game.credits >= o.cost ? 1 : 0)).join('') + ':' + (armed ? 'A' : '') + ':' + t.targeting;
     if (key !== this.panelKey) {
       const isNew = !this.panelKey.startsWith(t.id + ':');
       const keepPreview = !isNew && this.panelKey.split(':')[1] === String(t.level);
       this.panelKey = key;
-      this.renderPanel(t, opts);
+      this.renderPanel(t, opts, armed);
       if (isNew) this.bump(p, 'pop');
       if (!keepPreview) this.view.previewStats = null;
       this.positionPanel();
@@ -216,7 +249,7 @@ export class UI {
     }
   }
 
-  renderPanel(t, opts) {
+  renderPanel(t, opts, armed = false) {
     const s = t.stats, def = TOWERS[t.type], p = this.els.panel;
     const names = pathNames(t.type, t.path);
     const crumbs = [`<span>Lv ${t.level}</span>`, ...names.map((n) => `<span>${n}</span>`)].join('<i>›</i>');
@@ -244,9 +277,13 @@ export class UI {
       </div>
       <div class="p-stats">${statRows(s).map(([k, v]) => `<div class="ps"><label>${k}</label><b>${v}</b></div>`).join('')}</div>
       <div class="p-tags">${statTags(s).map((x) => `<span class="tag">${x}</span>`).join('')}</div>
+      ${s.kind === 'pulse' || s.kind === 'nova' ? '' : `<div class="p-target"><label>Target<kbd>T</kbd></label><div class="seg">${TARGET_MODES.map((m) =>
+        `<button data-act="target" data-mode="${m}" class="${t.targeting === m ? 'on' : ''}" title="${TARGET_HINTS[m]}">${m}</button>`).join('')}</div></div>`}
       <div class="p-meter">Damage dealt <b data-live="dealt">${fmt(t.dealt)}</b> · Kills <b data-live="kills">${fmt(t.kills)}</b></div>
       ${up}
-      <button class="p-sell" data-act="sell">Sell <b>+${Math.floor(t.invested * SELL_RATIO)}${CR}</b><kbd>S</kbd></button>`;
+      ${armed
+        ? `<button class="p-sell armed" data-act="sell">Confirm sell <b>+${Math.floor(t.invested * SELL_RATIO)}${CR}</b><kbd>S</kbd></button>`
+        : `<button class="p-sell" data-act="sell">Sell <b>+${Math.floor(t.invested * SELL_RATIO)}${CR}</b><kbd>S</kbd></button>`}`;
     p.hidden = false;
   }
 
@@ -275,29 +312,48 @@ export class UI {
   showOverlay(kind, data = {}) {
     const o = this.els.overlay;
     let html = '';
+    const stars = (n) => `<span class="stars">${[1, 2, 3].map((i) => `<i class="${i <= n ? 'on' : ''}">★</i>`).join('')}</span>`;
+    const again = `<div class="ov-actions"><button class="btn-primary hudbox" data-act="restart">%s</button>
+        <button class="btn-ghost" data-act="menu">Sectors</button></div>`;
     if (kind === 'start') {
+      const { maps, records = {}, current } = data;
+      const cards = maps.map((m) => {
+        const rec = records[m.id];
+        const recHtml = !rec ? '<span class="s-none">No record</span>'
+          : rec.stars ? `${stars(rec.stars)}<span>Secured</span>`
+          : `<span>Best: wave ${rec.wave}/${m.waves.length}</span>`;
+        const hot = m.difficulty === 'Hard';
+        return `<button class="sector hudbox${m.id === current ? ' sel' : ''}" data-act="start" data-arg="${m.id}" style="--c:${hot ? '#ff2a6d' : '#00e5ff'}">
+          <span class="s-top"><span class="s-name">${m.name}</span><span class="s-diff">${m.difficulty}</span></span>
+          <span class="s-title">${m.title}</span>
+          <span class="s-desc">${m.desc}</span>
+          <span class="s-meta">${m.paths.length} breach${m.paths.length > 1 ? 'es' : ''} · ${m.waves.length} waves</span>
+          <span class="s-foot"><span class="s-rec">${recHtml}</span><span class="s-go">Jack in ▸</span></span>
+        </button>`;
+      }).join('');
       html = `<div class="ov-card">
         <div class="ov-kicker">Pixo Arcade // Tower Defense</div>
         <h1 class="ov-title glitch" data-text="VOID//WARDENS">VOID<span class="sl">//</span>WARDENS</h1>
         <p class="ov-tag">A breach has opened in the grid. Hostile code is pouring through. Keep it away from the Core.</p>
+        <div class="sectors">${cards}</div>
         <div class="ov-help">
           <div><b>1–4</b> Pick a tower, click an empty tile to deploy</div>
           <div><b>Evolve</b> Every upgrade is a choice between two paths</div>
           <div><b>Space</b> Run waves early for bonus credits</div>
-        </div>
-        <button class="btn-primary hudbox" data-act="start">Jack in</button></div>`;
+        </div></div>`;
     } else if (kind === 'pause') {
       html = `<div class="ov-card"><div class="ov-kicker">Process suspended</div><h2 class="ov-h2 glitch" data-text="Paused">Paused</h2>
         <button class="btn-primary hudbox" data-act="resume">Resume</button>
-        <button class="btn-ghost" data-act="restart">Restart</button></div>`;
+        <div class="ov-actions"><button class="btn-ghost" data-act="restart">Restart</button><button class="btn-ghost" data-act="menu">Sectors</button></div></div>`;
     } else if (kind === 'win') {
-      html = `<div class="ov-card win"><div class="ov-kicker">Breach sealed</div><h2 class="ov-h2 glitch" data-text="System secure">System secure</h2>
+      html = `<div class="ov-card win"><div class="ov-kicker">${data.sector} · Breach sealed</div><h2 class="ov-h2 glitch" data-text="System secure">System secure</h2>
+        <div class="ov-stars">${stars(data.stars)}</div>
         <div class="ov-stats"><div><label>Core</label><b>${data.lives}/${START_LIVES}</b></div><div><label>Kills</label><b>${data.kills}</b></div><div><label>Towers</label><b>${data.towers}</b></div></div>
-        <button class="btn-primary hudbox" data-act="restart">Play again</button></div>`;
+        ${again.replace('%s', 'Play again')}</div>`;
     } else if (kind === 'lose') {
-      html = `<div class="ov-card lose"><div class="ov-kicker">Core compromised</div><h2 class="ov-h2 glitch" data-text="System breached">System breached</h2>
+      html = `<div class="ov-card lose"><div class="ov-kicker">${data.sector} · Core compromised</div><h2 class="ov-h2 glitch" data-text="System breached">System breached</h2>
         <div class="ov-stats"><div><label>Reached</label><b>Wave ${data.wave}</b></div><div><label>Kills</label><b>${data.kills}</b></div></div>
-        <button class="btn-primary hudbox" data-act="restart">Reboot</button></div>`;
+        ${again.replace('%s', 'Reboot')}</div>`;
     }
     o.innerHTML = html;
     o.className = 'overlay show ' + kind;

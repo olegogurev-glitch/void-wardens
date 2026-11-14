@@ -18,43 +18,57 @@ export const BREAK_TIME = 15;            // seconds between waves (auto-launch)
 export const SELL_RATIO = 0.7;           // refund share when selling
 export const EARLY_BONUS_PER_SEC = 3;    // credits per second skipped when calling a wave early
 export const waveClearBonus = (w) => 25 + w * 10;
-export const waveHpMult = (w) => 1 + 0.24 * (w - 1) + 0.045 * (w - 1) ** 2;
+// enemy HP multiplier for wave w; sectors can pass their own [linear, quadratic] curve
+export const waveHpMult = (w, [a, b] = [0.24, 0.045]) => 1 + a * (w - 1) + b * (w - 1) ** 2;
 
 // ── Enemies ─────────────────────────────────────────────────
 // armor: flat reduction per hit (min 20% of the hit always lands)
 // leak:  Core integrity lost when it reaches the Core
 export const ENEMIES = {
   scout: {
-    name: 'Glitch', plural: 'Glitches',
+    name: 'Glitch', plural: 'Glitches', trait: 'fast',
     hp: 32, speed: 105, armor: 0, reward: 5, radius: 11, leak: 1,
     color: '#ff2bd6',
   },
   brute: {
-    name: 'Trojan', plural: 'Trojans',
+    name: 'Trojan', plural: 'Trojans', trait: 'armor 3',
     hp: 170, speed: 48, armor: 3, reward: 14, radius: 17, leak: 2,
     color: '#ff3b4e',
   },
   boss: {
-    name: 'Leviathan.exe', plural: 'Leviathan.exe',
+    name: 'Leviathan.exe', plural: 'Leviathan.exe', trait: 'boss · armor 6',
     hp: 5200, speed: 30, armor: 6, reward: 300, radius: 34, leak: 12,
     color: '#ff1f3d', boss: true, ccResist: 0.25,
   },
+  // ── Sector 02 malware ──
+  worm: {
+    name: 'Worm', plural: 'Worms', trait: 'splits ×3',
+    hp: 90, speed: 68, armor: 0, reward: 6, radius: 14, leak: 2,
+    color: '#ff6a3d', split: { type: 'frag', count: 3 },
+  },
+  frag: {
+    name: 'Fragment', plural: 'Fragments', trait: 'fast',
+    hp: 24, speed: 125, armor: 0, reward: 2, radius: 8, leak: 1,
+    color: '#ff6a3d',
+  },
+  cipher: {
+    name: 'Cipher', plural: 'Ciphers', trait: 'shield blocks a hit',
+    hp: 64, speed: 82, armor: 0, reward: 8, radius: 12, leak: 1,
+    color: '#ffe14d', shield: 2.0, // seconds for the shield to re-encrypt after it pops
+  },
+  rootkit: {
+    name: 'Rootkit', plural: 'Rootkits', trait: 'cloaked · ICE reveals',
+    hp: 80, speed: 76, armor: 1, reward: 11, radius: 12, leak: 2,
+    color: '#ff4fa3', stealth: true,
+  },
+  patcher: {
+    name: 'Patcher', plural: 'Patchers', trait: 'heals nearby',
+    hp: 120, speed: 52, armor: 1, reward: 16, radius: 14, leak: 2,
+    color: '#ff8ad8', heal: { radius: 80, pct: 0.06, cap: 30, every: 2.0 },
+  },
 };
 
-// ── Waves ───────────────────────────────────────────────────
-// each group: [enemyType, count, spawnInterval, startDelay]
-export const WAVES = [
-  [['scout', 8, 0.9, 0]],
-  [['scout', 14, 0.6, 0]],
-  [['brute', 5, 1.8, 0], ['scout', 6, 0.5, 4]],
-  [['scout', 18, 0.45, 0], ['brute', 4, 2, 3]],
-  [['brute', 10, 1.3, 0]],
-  [['scout', 30, 0.28, 0]],
-  [['brute', 10, 1.1, 0], ['scout', 20, 0.4, 2]],
-  [['scout', 25, 0.3, 0], ['brute', 14, 0.9, 5]],
-  [['brute', 20, 0.75, 0], ['scout', 30, 0.25, 6]],
-  [['boss', 1, 0, 1.5], ['scout', 24, 0.5, 3], ['brute', 10, 1.5, 8]],
-];
+// Waves and routes live per-sector in src/maps.js.
 
 // ── Towers ──────────────────────────────────────────────────
 // Level 1 = base. Level 2 = pick 1 of 2 branches.

@@ -54,11 +54,14 @@ export function aura(color) {
   }
   return c;
 }
+// Multiplies with the current globalAlpha and restores it, so a translucent
+// parent (e.g. the placement ghost) stays translucent.
 function sprite(ctx, img, x, y, r, alpha = 1) {
   if (r <= 0 || alpha <= 0) return;
-  ctx.globalAlpha = alpha;
+  const prev = ctx.globalAlpha;
+  ctx.globalAlpha = prev * alpha;
   ctx.drawImage(img, x - r, y - r, r * 2, r * 2);
-  ctx.globalAlpha = 1;
+  ctx.globalAlpha = prev;
 }
 const add = (ctx) => (ctx.globalCompositeOperation = 'lighter');
 const norm = (ctx) => (ctx.globalCompositeOperation = 'source-over');
@@ -185,12 +188,13 @@ function drawBlaster(ctx, t, s, col, time) {
     ctx.beginPath(); ctx.moveTo(4 + rk, 0); ctx.lineTo(27 + rk, 0); ctx.stroke();
     norm(ctx);
   } else if (s.gatling) {
+    const baseA = ctx.globalAlpha;
     for (let i = 0; i < 3; i++) {
       const a = t.spin + (i * TAU) / 3;
-      ctx.globalAlpha = 0.5 + 0.5 * (Math.cos(a) * 0.5 + 0.5);
+      ctx.globalAlpha = baseA * (0.5 + 0.5 * (Math.cos(a) * 0.5 + 0.5));
       barrel(ctx, 4 + rk * 0.4, Math.sin(a) * 4, 18, 2.6);
     }
-    ctx.globalAlpha = 1;
+    ctx.globalAlpha = baseA;
     ctx.fillStyle = col; ctx.fillRect(14, -5.5, 2, 11);
   } else if (s.scatter) {
     for (const a of [-0.35, 0, 0.35]) { ctx.save(); ctx.rotate(a); barrel(ctx, 4 + rk, 0, 16, 3); ctx.restore(); }
@@ -326,7 +330,7 @@ function drawLauncher(ctx, t, s, col) {
 }
 
 // ── Enemies (hostile code) ──────────────────────────────────
-function drawEnemy(ctx, e, time) {
+function drawEnemy(ctx, e, time, map) {
   const col = e.def.color, r = e.radius;
   const sp = Math.min(1, e.age / 0.35);
   // occasional glitch displacement
@@ -336,9 +340,12 @@ function drawEnemy(ctx, e, time) {
   ctx.translate(e.x + jx, e.y);
   if (sp < 1) ctx.scale(sp, sp * 0.3 + 0.7 * sp);
 
-  add(ctx);
-  sprite(ctx, aura(col), 0, 0, r * (e.def.boss ? 2.6 : 2.1), e.def.boss ? 0.7 : 0.45);
-  norm(ctx);
+  const cloaked = e.def.stealth && e.revealT <= 0;
+  if (!cloaked) {
+    add(ctx);
+    sprite(ctx, aura(col), 0, 0, r * (e.def.boss ? 2.6 : 2.1), e.def.boss ? 0.7 : 0.45);
+    norm(ctx);
+  }
 
   if (e.type === 'scout') {
     ctx.save();
@@ -374,6 +381,84 @@ function drawEnemy(ctx, e, time) {
     add(ctx);
     sprite(ctx, glow(col), 0, 0, r * 0.55 + Math.sin(time * 4 + e.seed) * 1.5, 1);
     norm(ctx);
+  } else if (e.type === 'worm' || e.type === 'frag') {
+    // Worm: chain of spinning segments trailing the head; Fragment: a lone segment
+    // body segments follow the path behind the head, so the tail bends around corners
+    const segs = e.type === 'worm' ? 4 : 1;
+    const path = map && map.paths[e.path];
+    for (let i = segs - 1; i >= 0; i--) {
+      const sr = i ? r * (0.6 - i * 0.06) : r * 0.72;
+      let ox = 0, oy = 0;
+      if (i && path) {
+        const p = path.posAt(Math.max(0, e.d - i * r * 0.85), e.lane + Math.sin(time * 9 - i * 1.1 + e.seed) * 2);
+        ox = p.x - e.x; oy = p.y - e.y;
+      }
+      ctx.save(); ctx.translate(ox, oy); ctx.rotate(time * 2.5 * (i % 2 ? -1 : 1) + e.seed);
+      square(ctx, sr);
+      ctx.fillStyle = '#150603'; ctx.fill();
+      ctx.strokeStyle = i ? rgba(col, 0.75) : col; ctx.lineWidth = i ? 1.2 : 1.6; ctx.stroke();
+      ctx.restore();
+    }
+    if (segs > 1) {
+      ctx.save(); ctx.rotate(e.angle);
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(r * 0.2, -3.5, 2, 2); ctx.fillRect(r * 0.2, 1.5, 2, 2);
+      ctx.restore();
+    }
+    add(ctx); sprite(ctx, glow(col), 0, 0, r * 0.5, 0.9); norm(ctx);
+  } else if (e.type === 'cipher') {
+    ctx.save(); ctx.rotate(e.angle);
+    ctx.beginPath(); ctx.moveTo(r, 0); ctx.lineTo(-r * 0.7, -r * 0.85); ctx.lineTo(-r * 0.7, r * 0.85); ctx.closePath();
+    ctx.fillStyle = '#151102'; ctx.fill();
+    ctx.strokeStyle = col; ctx.lineWidth = 1.6; ctx.stroke();
+    ctx.fillStyle = col; ctx.fillRect(-4, -2, 4, 4); ctx.fillRect(0, -0.75, 5, 1.5); // key glyph
+    ctx.restore();
+    add(ctx); sprite(ctx, glow(col), 0, 0, r * 0.45, 0.8); norm(ctx);
+    if (e.shieldUp) {
+      ctx.save(); ctx.rotate(-time * 1.5);
+      chip(ctx, r + 6, 5);
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 1.4; ctx.stroke();
+      ctx.fillStyle = 'rgba(255,240,150,0.08)'; ctx.fill();
+      ctx.restore();
+    } else {
+      const f = 1 - Math.max(0, e.shieldT) / e.def.shield;
+      ctx.strokeStyle = rgba(col, 0.45); ctx.lineWidth = 1; ctx.setLineDash([2, 3]);
+      ctx.beginPath(); ctx.arc(0, 0, r + 6, -Math.PI / 2, -Math.PI / 2 + TAU * f); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  } else if (e.type === 'rootkit') {
+    // Cloaked: a faint flickering outline only. Revealed: solid, with a scan bracket.
+    const baseA = ctx.globalAlpha;
+    if (cloaked) ctx.globalAlpha = baseA * (hash(Math.floor(time * 9) + e.seed) > 0.85 ? 0.32 : 0.14);
+    ctx.save(); ctx.rotate(Math.PI / 4 + Math.sin(time * 2 + e.seed) * 0.25);
+    square(ctx, r * 0.78);
+    ctx.fillStyle = '#12040b'; ctx.fill();
+    if (cloaked) ctx.setLineDash([3, 3]);
+    ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.setLineDash([]);
+    square(ctx, r * 0.36);
+    ctx.strokeStyle = rgba(col, 0.7); ctx.lineWidth = 1; ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle = col; ctx.fillRect(-3, -1, 6, 2);
+    if (!cloaked) {
+      add(ctx); sprite(ctx, glow(col), 0, 0, r * 0.5, 0.9); norm(ctx);
+      ctx.strokeStyle = 'rgba(127,233,255,0.8)'; ctx.lineWidth = 1;
+      brackets(ctx, r + 5, 4); ctx.stroke();
+    }
+    ctx.globalAlpha = baseA;
+  } else if (e.type === 'patcher') {
+    ctx.save(); ctx.rotate(time * 0.8 + e.seed);
+    const a = r * 0.95, b = r * 0.36;
+    ctx.beginPath();
+    ctx.moveTo(-b, -a); ctx.lineTo(b, -a); ctx.lineTo(b, -b); ctx.lineTo(a, -b); ctx.lineTo(a, b); ctx.lineTo(b, b);
+    ctx.lineTo(b, a); ctx.lineTo(-b, a); ctx.lineTo(-b, b); ctx.lineTo(-a, b); ctx.lineTo(-a, -b); ctx.lineTo(-b, -b);
+    ctx.closePath();
+    ctx.fillStyle = '#17061a'; ctx.fill();
+    ctx.strokeStyle = col; ctx.lineWidth = 1.6; ctx.stroke();
+    ctx.restore();
+    const f = 1 - Math.max(0, e.healT) / e.def.heal.every;
+    ctx.strokeStyle = rgba(col, 0.55); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(0, 0, r + 5, -Math.PI / 2, -Math.PI / 2 + TAU * f); ctx.stroke();
+    add(ctx); sprite(ctx, glow(col), 0, 0, r * 0.45 + f * 2, 0.9); norm(ctx);
   } else {
     // Leviathan.exe — nested rotating frames + orbiting shards + glitch slices
     for (let i = 0; i < 3; i++) {
@@ -445,6 +530,11 @@ export class Renderer {
     this.runners = Array.from({ length: 6 }, () => this.newRunner(true));
   }
 
+  setMap(map) {
+    this.map = map;
+    if (this.dpr) this.buildStatic();
+  }
+
   resize(cssW, cssH, dpr) {
     this.canvas.width = Math.max(1, Math.round(cssW * dpr));
     this.canvas.height = Math.max(1, Math.round(cssH * dpr));
@@ -514,36 +604,47 @@ export class Renderer {
     }
     this.bg = bg;
 
-    // ── data bus (path)
+    // ── data bus (paths). Each layer is drawn for every path before the next layer,
+    // so where routes merge the dark fill covers the inner edges → clean junctions.
     const [bus, b] = this.layer();
-    const pts = this.map.points;
+    const paths = this.map.paths;
     const stroke = (w, style) => {
       b.lineWidth = w; b.strokeStyle = style; b.lineJoin = 'miter'; b.lineCap = 'square';
-      b.beginPath(); pts.forEach((p, i) => (i ? b.lineTo(p.x, p.y) : b.moveTo(p.x, p.y))); b.stroke();
+      for (const path of paths) {
+        b.beginPath(); path.points.forEach((p, i) => (i ? b.lineTo(p.x, p.y) : b.moveTo(p.x, p.y))); b.stroke();
+      }
     };
     add(b);
-    stroke(56, rgba(PAL.grid, 0.025));
-    stroke(44, rgba(PAL.grid, 0.05));
+    stroke(56, rgba(PAL.grid, 0.025 / paths.length));
+    stroke(44, rgba(PAL.grid, 0.05 / paths.length));
     norm(b);
     stroke(35, rgba(PAL.grid, 0.85));
     stroke(32, '#03070d');
-    stroke(32, rgba(PAL.grid, 0.03));
-    // lane ticks along both edges
+    stroke(32, rgba(PAL.grid, 0.03 / paths.length));
+    // lane ticks along both edges (skipping positions inside another path's bus)
     b.strokeStyle = rgba(PAL.grid, 0.28); b.lineWidth = 1;
-    for (const s of this.map.segs) {
+    const onOtherBus = (x, y, self) => paths.some((p) => p !== self && p.segs.some((s) => {
+      const px = x - s.x0, py = y - s.y0, along = px * s.ux + py * s.uy;
+      return along >= -17 && along <= s.len + 17 && Math.abs(px * -s.uy + py * s.ux) <= 17;
+    }));
+    for (const path of paths) for (const s of path.segs) {
       for (let d = 20; d < s.len; d += 20) {
         const x = s.x0 + s.ux * d, y = s.y0 + s.uy * d, px = -s.uy, py = s.ux;
         const big = Math.round(d / 20) % 2 === 0;
         for (const side of [-1, 1]) {
           const o1 = side * 15, o2 = side * (big ? 11 : 13);
+          if (paths.length > 1 && onOtherBus(x + px * o1, y + py * o1, path)) continue;
           b.beginPath(); b.moveTo(x + px * o1, y + py * o1); b.lineTo(x + px * o2, y + py * o2); b.stroke();
         }
       }
     }
     // vias at the bends
-    for (let i = 1; i < pts.length - 1; i++) {
-      b.fillStyle = rgba(PAL.grid, 0.9); b.fillRect(pts[i].x - 2, pts[i].y - 2, 4, 4);
-      b.strokeStyle = rgba(PAL.grid, 0.35); b.strokeRect(pts[i].x - 6.5, pts[i].y - 6.5, 13, 13);
+    for (const path of paths) {
+      const pts = path.points;
+      for (let i = 1; i < pts.length - 1; i++) {
+        b.fillStyle = rgba(PAL.grid, 0.9); b.fillRect(pts[i].x - 2, pts[i].y - 2, 4, 4);
+        b.strokeStyle = rgba(PAL.grid, 0.35); b.strokeRect(pts[i].x - 6.5, pts[i].y - 6.5, 13, 13);
+      }
     }
     this.bus = bus;
 
@@ -642,7 +743,8 @@ export class Renderer {
     ctx.drawImage(this.bus, 0, 0, WORLD_W, WORLD_H);
     this.drawBusFlow(ctx, time);
 
-    this.drawBreach(ctx, this.map.portal, rt, game);
+    const multi = this.map.paths.length > 1;
+    this.map.paths.forEach((p, i) => this.drawBreach(ctx, p.start, rt, game, multi ? 'BREACH ' + 'AB'[i] : 'BREACH'));
     this.drawCore(ctx, this.map.core, rt, game);
 
     if (view.placing) {
@@ -692,7 +794,7 @@ export class Renderer {
     }
 
     for (const t of game.towers) drawTower(ctx, t, time);
-    for (const e of game.enemies) drawEnemy(ctx, e, time);
+    for (const e of game.enemies) drawEnemy(ctx, e, time, this.map);
     this.drawProjectiles(ctx, game, time);
     this.drawFX(ctx, fx);
     this.drawHpBars(ctx, game);
@@ -707,9 +809,14 @@ export class Renderer {
       ctx.save(); ctx.translate(x, y); ctx.strokeStyle = rgba(c, 0.9); ctx.lineWidth = 1.5; brackets(ctx, 19, 6); ctx.stroke(); ctx.restore();
       if (this.map.isBuildable(hov.c, hov.r) && !game.towerAt(hov.c, hov.r)) {
         this.drawRange(ctx, x, y, view.placingStats.range, ok ? def.color : PAL.hostile, false);
-        ctx.globalAlpha = ok ? 0.75 : 0.35;
+        ctx.globalAlpha = ok ? 0.55 : 0.3;
         drawTower(ctx, { type: view.placing, stats: view.placingStats, x, y, angle: -Math.PI / 2, recoil: 0, spin: 0, level: 1, spawnT: 1, id: 0, cooldown: 0, barrel: 0, upgradeFlash: 0 }, time);
         ctx.globalAlpha = 1;
+        if (ok && view.touchPending === hov.c + ',' + hov.r) {
+          ctx.font = `700 10px ${MONO}`; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+          ctx.fillStyle = PAL.ok;
+          ctx.fillText('TAP AGAIN TO DEPLOY', x, y - 26);
+        }
       }
     }
 
@@ -748,26 +855,31 @@ export class Renderer {
   }
 
   drawBusFlow(ctx, time) {
-    const pts = this.map.points;
+    const paths = this.map.paths;
     add(ctx);
     ctx.lineJoin = 'miter'; ctx.lineCap = 'butt';
-    ctx.strokeStyle = rgba(PAL.grid, 0.22); ctx.lineWidth = 1;
+    ctx.strokeStyle = rgba(PAL.grid, 0.22 / Math.sqrt(paths.length)); ctx.lineWidth = 1;
     ctx.setLineDash([6, 14]); ctx.lineDashOffset = -time * 60;
-    ctx.beginPath(); pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y))); ctx.stroke();
-    ctx.setLineDash([]);
-    const L = this.map.length;
-    for (let i = 0; i < 9; i++) {
-      const d = (time * 150 + (i * L) / 9) % L;
-      const p = this.map.posAt(d);
-      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.angle);
-      ctx.fillStyle = rgba(PAL.grid, 0.9); ctx.fillRect(-5, -1, 10, 2);
-      ctx.restore();
-      sprite(ctx, glow(PAL.grid), p.x, p.y, 8, 0.4);
+    for (const path of paths) {
+      ctx.beginPath(); path.points.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y))); ctx.stroke();
     }
+    ctx.setLineDash([]);
+    const per = Math.ceil(9 / paths.length);
+    paths.forEach((path, pi) => {
+      const L = path.length;
+      for (let i = 0; i < per; i++) {
+        const d = (time * 150 + ((i + pi * 0.5) * L) / per) % L;
+        const p = path.posAt(d);
+        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.angle);
+        ctx.fillStyle = rgba(PAL.grid, 0.9); ctx.fillRect(-5, -1, 10, 2);
+        ctx.restore();
+        sprite(ctx, glow(PAL.grid), p.x, p.y, 8, 0.4);
+      }
+    });
     norm(ctx);
   }
 
-  drawBreach(ctx, P, rt, game) {
+  drawBreach(ctx, P, rt, game, label = 'BREACH') {
     const on = game.state === 'wave' ? 1 : 0.55;
     const col = PAL.hostile;
     ctx.save();
@@ -796,7 +908,7 @@ export class Renderer {
     ctx.stroke();
     ctx.font = `600 8px ${MONO}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
     ctx.fillStyle = rgba(col, 0.85);
-    ctx.fillText('BREACH', 24, -30);
+    ctx.fillText(label, 24, -30);
     ctx.restore();
   }
 
@@ -915,6 +1027,7 @@ export class Renderer {
           ctx.fillStyle = p.color;
           ctx.fillRect(p.x - s / 2, p.y - s / 2, s, s);
         } else {
+          ctx.globalAlpha = 1;
           sprite(ctx, glow(p.color), p.x, p.y, p.size * (0.4 + 0.6 * a) * 1.6, a);
         }
       } else if (p.kind === 'spark') {
@@ -949,7 +1062,7 @@ export class Renderer {
 
   drawHpBars(ctx, game) {
     for (const e of game.enemies) {
-      if (e.def.boss || e.hp >= e.maxHp || e.dead) continue;
+      if (e.def.boss || e.hp >= e.maxHp || e.dead || !game.visible(e)) continue;
       const w = e.radius * 2 + 4, x = Math.round(e.x - w / 2), y = Math.round(e.y - e.radius - 9);
       const f = Math.max(0, e.hp / e.maxHp);
       ctx.fillStyle = 'rgba(2,4,10,0.8)'; ctx.fillRect(x - 1, y - 1, w + 2, 5);

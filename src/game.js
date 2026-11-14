@@ -1,13 +1,14 @@
 // Core simulation. No DOM access here — the renderer and UI read this state,
 // and sounds are requested through the 'sfx' event.
 import {
-  TILE, WORLD_W, WORLD_H, ENEMIES, WAVES, TOWERS,
+  TILE, WORLD_W, WORLD_H, ENEMIES, TOWERS,
   START_CREDITS, START_LIVES, BREAK_TIME, SELL_RATIO, EARLY_BONUS_PER_SEC,
   waveHpMult, waveClearBonus, towerStats, upgradeOptions,
 } from './config.js';
 import { FX } from './fx.js';
 
 const TAU = Math.PI * 2;
+export const TARGET_MODES = ['first', 'last', 'strong', 'close'];
 const rand = (a, b) => a + Math.random() * (b - a);
 
 export function turnTowards(a, b, max) {
@@ -28,11 +29,19 @@ export class Game {
   emit(ev, arg) { const h = this.handlers[ev]; if (h) for (const f of h) f(arg); }
   sfx(name) { this.emit('sfx', name); }
 
+  setMap(map) {
+    this.map = map;
+    this.reset();
+  }
+
   reset() {
-    this.credits = START_CREDITS;
+    const def = this.map.def;
+    this.waves = def.waves;
+    this.credits = def.startCredits ?? START_CREDITS;
     this.lives = START_LIVES;
     this.wave = 0;
-    this.totalWaves = WAVES.length;
+    this.totalWaves = this.waves.length;
+    this.spawnLater = [];
     this.state = 'ready'; // ready → wave → break → wave … → won | lost
     this.time = 0;
     this.waveTime = 0;
@@ -64,10 +73,14 @@ export class Game {
     this.wave++;
     this.state = 'wave';
     this.waveTime = 0;
-    const mult = waveHpMult(this.wave);
+    const mult = waveHpMult(this.wave, this.map.def.hpCurve);
     const q = [];
-    for (const [type, count, interval, delay] of WAVES[this.wave - 1]) {
-      for (let i = 0; i < count; i++) q.push({ t: delay + i * interval, type, mult });
+    const nPaths = this.map.paths.length;
+    for (const [type, count, interval, delay, path = 0] of this.waves[this.wave - 1]) {
+      for (let i = 0; i < count; i++) {
+        const p = path === 'alt' ? i % nPaths : Math.min(path, nPaths - 1);
+        q.push({ t: delay + i * interval, type, mult, path: p });
+      }
     }
     q.sort((a, b) => a.t - b.t);
     this.spawnQueue = q;
@@ -79,7 +92,7 @@ export class Game {
   endWave() {
     const bonus = waveClearBonus(this.wave);
     this.credits += bonus;
-    if (this.wave >= WAVES.length) {
+    if (this.wave >= this.waves.length) {
       this.state = 'won';
       this.emit('win');
       this.sfx('win');
@@ -100,7 +113,7 @@ export class Game {
       this.waveTime += dt;
       while (this.spawnQueue.length && this.spawnQueue[0].t <= this.waveTime) {
         const s = this.spawnQueue.shift();
-        this.spawn(s.type, s.mult);
+        this.spawn(s.type, s.mult, s.path);
       }
     } else if (this.state === 'break') {
       this.breakTimer -= dt;
@@ -112,6 +125,12 @@ export class Game {
     this.updateProjectiles(dt);
     this.updateZones(dt);
 
+    // enemies created mid-tick (worm fragments) join once iteration is done
+    if (this.spawnLater.length) {
+      for (const s of this.spawnLater) this.spawn(s.type, s.mult, s.path, s.d);
+      this.spawnLater.length = 0;
+    }
+
     let k = 0;
     for (const e of this.enemies) if (!e.dead && !e.leaked) this.enemies[k++] = e;
     this.enemies.length = k;
@@ -122,21 +141,22 @@ export class Game {
   }
 
   // ── Enemies ──────────────────────────────────────────────
-  spawn(type, mult) {
+  spawn(type, mult, path = 0, d = 0) {
     const def = ENEMIES[type];
     const maxHp = def.hp * (def.boss ? 1 : mult);
     const e = {
-      id: this.nextId++, type, def, maxHp, hp: maxHp,
-      d: 0, lane: def.boss ? 0 : rand(-7, 7),
+      id: this.nextId++, type, def, maxHp, hp: maxHp, mult,
+      path, d, lane: def.boss ? 0 : rand(-7, 7),
       radius: def.radius, armor: def.armor, speed: def.speed * rand(0.94, 1.06),
       slowAmt: 0, slowT: 0, freezeT: 0, stunT: 0, vulnAmt: 0, vulnT: 0, pullCd: 0,
-      flash: 0, dead: false, leaked: false, age: 0, seed: Math.random() * 100, trailT: 0,
+      flash: 0, dead: false, leaked: false, age: d > 0 ? 0.25 : 0, seed: Math.random() * 100, trailT: 0,
+      shieldUp: !!def.shield, shieldT: 0, revealT: 0, healT: def.heal ? def.heal.every * rand(0.3, 1) : 0,
       x: 0, y: 0, angle: 0,
     };
-    const p = this.map.posAt(0, e.lane);
+    const p = this.map.paths[path].posAt(d, e.lane);
     e.x = p.x; e.y = p.y; e.angle = p.angle;
     this.enemies.push(e);
-    const P = this.map.portal;
+    const P = d > 0 ? e : this.map.paths[path].start;
     this.fx.ring(P.x, P.y, 4, def.boss ? 90 : 30, 0.4, def.color, def.boss ? 5 : 2);
     if (def.boss) {
       this.boss = e;
@@ -163,16 +183,47 @@ export class Game {
       const ease = Math.min(1, e.age / 0.4);
       e.d += e.speed * mult * dt * (0.4 + 0.6 * ease);
 
-      const p = this.map.posAt(e.d, e.lane);
+      const path = this.map.paths[e.path];
+      const p = path.posAt(e.d, e.lane);
       e.x = p.x; e.y = p.y;
       e.angle = turnTowards(e.angle, p.angle, dt * 10);
 
-      if (e.d >= this.map.length) { this.leak(e); continue; }
+      if (e.d >= path.length) { this.leak(e); continue; }
+
+      // Cipher: shield re-encrypts a while after it pops
+      if (e.def.shield && !e.shieldUp) {
+        e.shieldT -= dt;
+        if (e.shieldT <= 0) {
+          e.shieldUp = true;
+          fx.ring(e.x, e.y, e.radius + 10, e.radius + 4, 0.25, '#ffffff', 1.5);
+        }
+      }
+      if (e.revealT > 0) e.revealT -= dt;
+      // Patcher: periodic heal pulse on nearby malware (capped per target, so bosses heal slowly)
+      if (e.def.heal) {
+        e.healT -= dt;
+        if (e.healT <= 0) {
+          const h = e.def.heal;
+          e.healT = h.every;
+          let healed = 0;
+          for (const o of this.enemies) {
+            if (o.dead || o.leaked || o.hp >= o.maxHp) continue;
+            if ((o.x - e.x) ** 2 + (o.y - e.y) ** 2 > h.radius * h.radius) continue;
+            o.hp = Math.min(o.maxHp, o.hp + Math.min(o.maxHp * h.pct, h.cap));
+            fx.add({ kind: 'glow', x: o.x, y: o.y - o.radius, vx: 0, vy: -40, life: 0.5, size: 4, color: e.def.color, drag: 1 });
+            healed++;
+          }
+          fx.ring(e.x, e.y, 6, h.radius, 0.5, e.def.color, 2);
+          if (healed) this.sfx('heal');
+        }
+      }
 
       // ambient trails
       e.trailT -= dt;
       if (e.trailT <= 0) {
-        if (e.type === 'scout') {
+        if (e.def.stealth && e.revealT <= 0) {
+          e.trailT = 0.2; // cloaked: no trail
+        } else if (e.type === 'scout' || e.type === 'frag') {
           e.trailT = 0.035;
           fx.add({ kind: 'glow', x: e.x - Math.cos(e.angle) * 8, y: e.y - Math.sin(e.angle) * 8, vx: rand(-10, 10), vy: rand(-10, 10), life: 0.3, size: 4, color: e.def.color, drag: 2 });
         } else if (e.type === 'boss') {
@@ -221,8 +272,22 @@ export class Game {
     this.sfx('bigboom');
   }
 
-  hurt(e, amount, src, pierce = false) {
+  // Can towers see (and aim at) this enemy? Cloaked Rootkits only once revealed.
+  visible(e) { return !e.def.stealth || e.revealT > 0; }
+
+  // bypassShield: damage-over-time (burn zones) ignores Cipher shields
+  hurt(e, amount, src, pierce = false, bypassShield = false) {
     if (e.dead || e.leaked) return 0;
+    if (e.def.stealth) e.revealT = Math.max(e.revealT, 0.6); // any hit briefly exposes a Rootkit
+    if (e.shieldUp && !bypassShield) {
+      e.shieldUp = false;
+      e.shieldT = e.def.shield;
+      e.flash = 0.07;
+      this.fx.ring(e.x, e.y, e.radius + 4, e.radius + 16, 0.25, '#ffffff', 2);
+      this.fx.burst(e.x, e.y, e.def.color, 8, 140, 2, 0.3, 'spark', 4);
+      this.sfx('shield');
+      return 0;
+    }
     let dmg = amount * (1 + e.vulnAmt);
     if (!pierce && e.armor > 0) dmg = Math.max(dmg - e.armor, dmg * 0.2);
     e.hp -= dmg;
@@ -241,12 +306,16 @@ export class Game {
     this.credits += e.def.reward;
     const fx = this.fx, col = e.def.color;
     fx.text(e.x, e.y - e.radius - 4, '+' + e.def.reward, '#ffb800', e.def.boss ? 22 : 12);
-    if (e.type === 'scout') {
+    if (e.def.split) {
+      const { type, count } = e.def.split;
+      for (let i = 0; i < count; i++) this.spawnLater.push({ type, mult: e.mult, path: e.path, d: Math.max(1, e.d - i * 12) });
+    }
+    if (!e.def.boss && e.radius < 14) {
       fx.burst(e.x, e.y, col, 14, 170, 3, 0.45);
       fx.burst(e.x, e.y, '#ffffff', 6, 220, 1.5, 0.25, 'spark', 4);
       fx.ring(e.x, e.y, 3, 26, 0.3, col, 2);
       this.sfx('pop');
-    } else if (e.type === 'brute') {
+    } else if (!e.def.boss) {
       fx.burst(e.x, e.y, col, 26, 210, 4, 0.6);
       fx.burst(e.x, e.y, col, 10, 160, 4, 0.9, 'debris', 2.5);
       fx.burst(e.x, e.y, '#ffffff', 10, 260, 1.8, 0.3, 'spark', 4);
@@ -297,6 +366,7 @@ export class Game {
       path: [], level: 1, stats: towerStats(type, []),
       cooldown: 0.25, angle: -Math.PI / 2, target: null, recoil: 0, barrel: 0, spin: 0,
       spawnT: 0, invested: def.cost, dealt: 0, kills: 0, upgradeFlash: 0,
+      targeting: 'first',
     };
     this.towers.push(t);
     this.grid.set(c + ',' + r, t);
@@ -340,17 +410,56 @@ export class Game {
     return refund;
   }
 
-  findTarget(x, y, range) {
-    let best = null, bd = -1;
+  setTargeting(t, mode) {
+    if (!TARGET_MODES.includes(mode)) return;
+    t.targeting = mode;
+    this.fx.ring(t.x, t.y, 22, 12, 0.25, t.stats.color, 1.5);
+    this.sfx('click');
+  }
+
+  // Higher score = preferred target. 'first' = furthest along the path.
+  targetScore(e, x, y, mode) {
+    switch (mode) {
+      case 'last': return this.map.paths[e.path].length - e.d;
+      case 'strong': return e.hp * 1000 + e.d;
+      case 'close': return -((e.x - x) ** 2 + (e.y - y) ** 2);
+      default: return e.d - this.map.paths[e.path].length; // least distance left to the Core
+    }
+  }
+
+  findTarget(x, y, range, mode = 'first') {
+    let best = null, bs = -Infinity;
     for (const e of this.enemies) {
-      if (e.dead || e.leaked) continue;
+      if (e.dead || e.leaked || !this.visible(e)) continue;
       const dx = e.x - x, dy = e.y - y, rr = range + e.radius * 0.5;
-      if (dx * dx + dy * dy <= rr * rr && e.d > bd) { bd = e.d; best = e; }
+      if (dx * dx + dy * dy > rr * rr) continue;
+      const s = this.targetScore(e, x, y, mode);
+      if (s > bs) { bs = s; best = e; }
     }
     return best;
   }
 
+  // Up to n distinct targets in range, best first by the tower's targeting mode
+  pickTargets(t, n) {
+    return this.inRange(t.x, t.y, t.stats.range)
+      .map((e) => [this.targetScore(e, t.x, t.y, t.targeting), e])
+      .sort((a, b) => b[0] - a[0])
+      .slice(0, n)
+      .map((p) => p[1]);
+  }
+
   inRange(x, y, range) {
+    const out = [];
+    for (const e of this.enemies) {
+      if (e.dead || e.leaked || !this.visible(e)) continue;
+      const dx = e.x - x, dy = e.y - y, rr = range + e.radius * 0.5;
+      if (dx * dx + dy * dy <= rr * rr) out.push(e);
+    }
+    return out;
+  }
+
+  // Like inRange, but includes cloaked enemies — for area effects that don't need to aim
+  allInRange(x, y, range) {
     const out = [];
     for (const e of this.enemies) {
       if (e.dead || e.leaked) continue;
@@ -363,7 +472,7 @@ export class Game {
   nearestEnemy(x, y, maxDist) {
     let best = null, bd = maxDist * maxDist;
     for (const e of this.enemies) {
-      if (e.dead || e.leaked) continue;
+      if (e.dead || e.leaked || !this.visible(e)) continue;
       const d2 = (e.x - x) ** 2 + (e.y - y) ** 2;
       if (d2 < bd) { bd = d2; best = e; }
     }
@@ -379,7 +488,10 @@ export class Game {
       if (s.gatling) t.spin += dt * (t.target ? 28 : 3);
       t.cooldown -= dt;
 
-      const target = this.findTarget(t.x, t.y, s.range);
+      // area towers (ICE pulse, EMP) trigger on anything in range, cloaked or not
+      const target = s.kind === 'pulse' || s.kind === 'nova'
+        ? this.allInRange(t.x, t.y, s.range)[0] || null
+        : this.findTarget(t.x, t.y, s.range, t.targeting);
       t.target = target;
       if (target && (s.kind === 'bolt' || s.kind === 'rail' || s.kind === 'missile')) {
         t.angle = turnTowards(t.angle, Math.atan2(target.y - t.y, target.x - t.x), dt * 12);
@@ -422,7 +534,7 @@ export class Game {
     switch (s.kind) {
       case 'bolt': {
         let targets = [target];
-        if (s.targets > 1) targets = this.inRange(t.x, t.y, s.range).sort((a, b) => b.d - a.d).slice(0, s.targets);
+        if (s.targets > 1) targets = this.pickTargets(t, s.targets);
         t.angle = Math.atan2(target.y - t.y, target.x - t.x);
         const fan = [0, -0.35, 0.35];
         for (let i = 0; i < targets.length; i++) {
@@ -485,7 +597,7 @@ export class Game {
         while (hits.length < s.chains) {
           let best = null, bd = cr2;
           for (const e of this.enemies) {
-            if (e.dead || hits.includes(e)) continue;
+            if (e.dead || hits.includes(e) || !this.visible(e)) continue;
             const d2 = (e.x - cur.x) ** 2 + (e.y - cur.y) ** 2;
             if (d2 < bd) { bd = d2; best = e; }
           }
@@ -509,7 +621,7 @@ export class Game {
       }
 
       case 'nova': {
-        const list = this.inRange(t.x, t.y, s.range);
+        const list = this.allInRange(t.x, t.y, s.range);
         list.forEach((e, i) => {
           if (i < 12) fx.lightning([{ x: t.x, y: t.y - 22 }, { x: e.x, y: e.y }], s.color, 1.8, 0.2);
           this.hurt(e, s.damage, t, true);
@@ -523,8 +635,12 @@ export class Game {
       }
 
       case 'pulse': {
-        const list = this.inRange(t.x, t.y, s.range);
+        const list = this.allInRange(t.x, t.y, s.range);
         for (const e of list) {
+          if (e.def.stealth) {
+            if (e.revealT <= 0.6) fx.ring(e.x, e.y, e.radius + 14, e.radius + 2, 0.3, '#7fe9ff', 1.5);
+            e.revealT = Math.max(e.revealT, 8); // ICE pulses decloak Rootkits for a good stretch of road
+          }
           this.hurt(e, s.damage, t, true);
           this.applyStatus(e, s);
         }
@@ -545,7 +661,7 @@ export class Game {
         const n = s.missiles;
         let targets = [target];
         if (n > 1) {
-          targets = this.inRange(t.x, t.y, s.range).sort((a, b) => b.d - a.d).slice(0, n);
+          targets = this.pickTargets(t, n);
           if (!targets.length) targets = [target];
         }
         for (let i = 0; i < n; i++) {
@@ -627,7 +743,7 @@ export class Game {
 
   enemyAt(x, y, pad) {
     for (const e of this.enemies) {
-      if (e.dead || e.leaked) continue;
+      if (e.dead || e.leaked || !this.visible(e)) continue;
       const r = e.radius + pad;
       if ((e.x - x) ** 2 + (e.y - y) ** 2 <= r * r) return e;
     }
@@ -695,7 +811,7 @@ export class Game {
         z.tick += 0.25;
         for (const e of this.enemies) {
           if (e.dead) continue;
-          if ((e.x - z.x) ** 2 + (e.y - z.y) ** 2 <= (z.r + e.radius * 0.5) ** 2) this.hurt(e, z.dps * 0.25, z.src, true);
+          if ((e.x - z.x) ** 2 + (e.y - z.y) ** 2 <= (z.r + e.radius * 0.5) ** 2) this.hurt(e, z.dps * 0.25, z.src, true, true);
         }
       }
       if (Math.random() < 0.7) {

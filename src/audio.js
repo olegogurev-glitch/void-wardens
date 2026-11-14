@@ -1,5 +1,5 @@
 // Tiny WebAudio synth — every sound is generated, no audio files.
-const GAPS = { shoot: 45, thump: 60, zap: 55, frost: 80, gravity: 120, pop: 35, pop2: 50, boom: 70, bigboom: 150, launch: 70, rail: 60, emp: 90 };
+const GAPS = { shield: 60, heal: 250, shoot: 45, thump: 60, zap: 55, frost: 80, gravity: 120, pop: 35, pop2: 50, boom: 70, bigboom: 150, launch: 70, rail: 60, emp: 90 };
 
 export class Sfx {
   constructor() {
@@ -124,6 +124,14 @@ export class Sfx {
         this.tone({ type: 'sawtooth', f0: 55, f1: 38, dur: 1.6, gain: 0.14 });
         this.tone({ type: 'sawtooth', f0: 82, f1: 57, dur: 1.6, gain: 0.1 });
         this.noise({ dur: 1.2, gain: 0.1, filter: 'lowpass', f0: 400, f1: 60 });
+        break;
+      case 'shield':
+        this.tone({ type: 'square', f0: 2200, f1: 700, dur: 0.09, gain: 0.03 });
+        this.noise({ dur: 0.07, gain: 0.04, filter: 'highpass', f0: 5000 });
+        break;
+      case 'heal':
+        this.tone({ type: 'sine', f0: 520, f1: 880, dur: 0.25, gain: 0.035 });
+        this.tone({ type: 'sine', f0: 780, f1: 1320, dur: 0.25, gain: 0.02, delay: 0.05 });
         break;
       case 'error': this.tone({ type: 'square', f0: 160, f1: 120, dur: 0.12, gain: 0.045 }); break;
       case 'click': this.tone({ type: 'sine', f0: 900, dur: 0.04, gain: 0.04 }); break;
