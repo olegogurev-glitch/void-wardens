@@ -27,6 +27,25 @@ export class Music {
     this.level = 0;
     this.timer = null;
     this.volume = 0.32;
+    this.hits = []; // scheduled drum hits { t, amt } — read back by pulse() to sync visuals
+  }
+
+  // 0..1 envelope of the most recent audible kick/snare, for beat-synced visuals
+  pulse() {
+    const c = this.sfx.ctx;
+    if (!c || !this.timer || this.sfx.muted || !this.hits.length) return 0;
+    const now = c.currentTime - (c.outputLatency || c.baseLatency || 0);
+    let v = 0;
+    for (const h of this.hits) {
+      const dt = now - h.t;
+      if (dt >= 0 && dt < 0.6) v = Math.max(v, h.amt * Math.exp(-dt * 7));
+    }
+    return v * (this.ducked ? 0.3 : 1);
+  }
+
+  mark(t, amt) {
+    this.hits.push({ t, amt });
+    if (this.hits.length > 12) this.hits.shift();
   }
 
   init() {
@@ -82,6 +101,7 @@ export class Music {
   setLevel(level) { this.level = level; }
 
   duck(down) {
+    this.ducked = down;
     if (!this.duckGain) return;
     this.duckGain.gain.setTargetAtTime(down ? 0.25 : 1, this.sfx.ctx.currentTime, 0.15);
   }
@@ -163,6 +183,7 @@ export class Music {
   }
 
   kick(t, gain = 0.5) {
+    this.mark(t, gain / 0.5);
     const c = this.sfx.ctx;
     const o = c.createOscillator(), g = c.createGain();
     o.frequency.setValueAtTime(140, t);
@@ -189,6 +210,7 @@ export class Music {
   }
 
   snare(t) {
+    this.mark(t, 0.45);
     this.noiseHit(t, { gain: 0.16, dur: 0.22, type: 'bandpass', freq: 1900, q: 0.8, verb: 0.6 });
     this.voice({ type: 'triangle', freq: 190, t, dur: 0.1, gain: 0.08, attack: 0.002, release: 0.08 });
   }

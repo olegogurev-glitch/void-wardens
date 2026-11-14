@@ -81,9 +81,12 @@ void main() {
 
 const FS_COMP = `precision highp float;
 varying vec2 uv;
-uniform sampler2D scene, bloom, streak;
+uniform sampler2D scene, bloom, streak, dirt, haze;
+uniform float dirtI;
 uniform float aspect, time, bloomI, streakI, ca, glitch, grain, vig, scanP, scanH, scanA, flashA;
-uniform vec3 flashC, tint;
+uniform float sat, con, power, nW;
+uniform vec2 res;
+uniform vec3 flashC, tint, lift, gain;
 uniform vec4 waves[${MAX_WAVES}];   // center uv, radius, amplitude (height units)
 uniform float wwid[${MAX_WAVES}];
 
@@ -94,6 +97,7 @@ void main() {
   // shockwave refraction: a lens-like ring that pulls inside / pushes outside
   vec2 off = vec2(0.0);
   for (int i = 0; i < ${MAX_WAVES}; i++) {
+    if (float(i) >= nW) break;   // only the active shockwaves
     vec4 w = waves[i];
     if (w.w <= 0.0) continue;
     vec2 d = (st - w.xy) * vec2(aspect, 1.0);
@@ -120,7 +124,18 @@ void main() {
   col.g = texture2D(scene, st).g;
   col.b = texture2D(scene, st - cav).b;
 
-  col += texture2D(bloom, st).rgb * bloomI;
+  vec3 bl = texture2D(bloom, st).rgb;
+  col += bl * bloomI;
+  // lens dirt: smudges on the "glass" only show where bright light passes through
+  // lit by local glare plus the overall light hitting the glass (coarse average) and flashes
+  if (dirtI > 0.0) {
+    vec3 glare = texture2D(haze, st).rgb;
+    vec3 avg = vec3(0.0);
+    for (int gx = 0; gx < 3; gx++) for (int gy = 0; gy < 3; gy++)
+      avg += texture2D(haze, vec2(0.17 + 0.33 * float(gx), 0.17 + 0.33 * float(gy))).rgb;
+    glare += max(avg * (1.0 / 9.0) - 0.02, 0.0) + flashC * flashA * 0.6;
+    col += glare * texture2D(dirt, uv).rgb * dirtI;
+  }
   col += texture2D(streak, st).rgb * streakI * tint;
 
   // hot overflow bleeds into the other channels → saturated neon cores burn toward white
@@ -131,17 +146,72 @@ void main() {
   float edge = smoothstep(0.08, 0.5, r2);
   col += flashC * flashA * (0.3 + edge * 1.4);
 
+  // colour grade: saturation, contrast (dark pivot), gain, and a lift that tints the shadows
+  float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
+  col = mix(vec3(lum), col, sat);
+  col = max((col - 0.18) * con + 0.18, 0.0) * gain + lift * (1.0 - clamp(lum * 2.0, 0.0, 1.0));
+
   // vignette
   col *= 1.0 - vig * smoothstep(0.12, 0.62, r2 * 1.35);
 
   // scanlines
   col *= 1.0 - scanA * step(mod(gl_FragCoord.y, scanP), scanH);
 
+  // CRT power-on: a dot opens into a bright line, which opens into the picture
+  if (power < 1.0) {
+    float hx = clamp(power / 0.28, 0.0, 1.0);
+    float hy = clamp((power - 0.28) / 0.72, 0.0, 1.0);
+    hy = hy * hy * (3.0 - 2.0 * hy);
+    vec2 q = abs(uv - 0.5) * 2.0;
+    float inside = step(q.x, hx) * step(q.y, max(hy, 2.0 / res.y));
+    col *= inside * (1.0 + (1.0 - hy) * 1.5);
+    float line = step(q.x, hx) * exp(-q.y * res.y / (4.0 + hy * 60.0)) * (1.0 - hy);
+    col += vec3(0.65, 0.95, 1.0) * line * 1.4;
+  }
+
   // grain (also dithers the bloom gradients)
   col += (hash(gl_FragCoord.xy * 0.731 + fract(time * 7.13) * 91.7) - 0.5) * grain;
 
   gl_FragColor = vec4(col, 1.0);
 }`;
+
+// Procedural lens-dirt texture: soft smudges, faint hexagonal bokeh rings and a few wipe streaks,
+// denser toward the edges like a real lens. Deterministic, so it never changes between loads.
+function makeDirt() {
+  const W = 512, H = 288, c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+  g.globalCompositeOperation = 'lighter';
+  const edgeBias = () => { const v = rnd(); return v < 0.5 ? (v * 2) ** 1.6 * 0.5 : 1 - ((1 - v) * 2) ** 1.6 * 0.5; };
+  for (let i = 0; i < 90; i++) {
+    const x = edgeBias() * W, y = edgeBias() * H, r = 4 + rnd() ** 2 * 46, a = 0.1 + rnd() * 0.3;
+    const gr = g.createRadialGradient(x, y, 0, x, y, r);
+    const tint = rnd() < 0.7 ? '210,235,255' : '255,225,235';
+    gr.addColorStop(0, `rgba(${tint},${a})`); gr.addColorStop(0.6, `rgba(${tint},${a * 0.45})`); gr.addColorStop(1, `rgba(${tint},0)`);
+    g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+  g.lineWidth = 1.2;
+  for (let i = 0; i < 14; i++) {
+    const x = rnd() * W, y = rnd() * H, r = 8 + rnd() * 18;
+    g.strokeStyle = `rgba(220,240,255,${0.08 + rnd() * 0.1})`;
+    g.fillStyle = `rgba(220,240,255,${0.03 + rnd() * 0.05})`;
+    g.beginPath();
+    for (let k = 0; k < 6; k++) { const a = (k / 6) * Math.PI * 2 + 0.3; g.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r); }
+    g.closePath(); g.fill(); g.stroke();
+  }
+  for (let i = 0; i < 6; i++) {
+    g.save();
+    g.translate(edgeBias() * W, edgeBias() * H); g.rotate(rnd() * Math.PI); g.scale(1, 0.12 + rnd() * 0.1);
+    const r = 40 + rnd() * 70, gr = g.createRadialGradient(0, 0, 0, 0, 0, r);
+    gr.addColorStop(0, 'rgba(220,240,255,0.3)'); gr.addColorStop(1, 'rgba(220,240,255,0)');
+    g.fillStyle = gr; g.fillRect(-r, -r, r * 2, r * 2);
+    g.restore();
+  }
+  return c;
+}
 
 export class Post {
   static create(canvas) {
@@ -207,6 +277,8 @@ export class Post {
     this.black = this.tex();
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
     this.fmt = this.pickFormat();
+    this.dirtTex = this.tex();
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, makeDirt());
     this.targets = [];
     this.waveBuf = new Float32Array(MAX_WAVES * 4);
     this.wwBuf = new Float32Array(MAX_WAVES);
@@ -300,7 +372,7 @@ export class Post {
     const W = this.w, H = this.h;
     const gain = this.fmt.hdr ? 1 : 0.62;
 
-    let bloomTex = this.black, streakTex = this.black;
+    let bloomTex = this.black, streakTex = this.black, hazeTex = this.black;
     if (o.bloom) {
       const B = this.bloom;
       this.pass(P.pre, B[0], this.sceneTex, W, H, (u) => { gl.uniform1f(u.thr, o.thr ?? 0.42); gl.uniform1f(u.knee, 0.3); });
@@ -309,6 +381,7 @@ export class Post {
       for (let i = B.length - 1; i > 0; i--) this.pass(P.up, B[i - 1], B[i].tex, B[i].w, B[i].h, (u) => gl.uniform1f(u.gain, gain));
       gl.disable(gl.BLEND);
       bloomTex = B[0].tex;
+      hazeTex = B[3].tex; // wide glare (1/16 res, already includes the level below) for lens dirt
 
       const S = this.streak;
       this.pass(P.white, S[0], this.sceneTex, W, H, (u) => { gl.uniform1f(u.thr, 0.62); gl.uniform1f(u.knee, 0.3); });
@@ -327,7 +400,17 @@ export class Post {
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.sceneTex); gl.uniform1i(u.scene, 0);
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, bloomTex); gl.uniform1i(u.bloom, 1);
     gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, streakTex); gl.uniform1i(u.streak, 2);
+    gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, this.dirtTex); gl.uniform1i(u.dirt, 3);
+    gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, hazeTex); gl.uniform1i(u.haze, 4);
+    gl.uniform1f(u.dirtI, (o.dirtI ?? 3) / (this.fmt.hdr ? 1 : gain));
     gl.uniform1f(u.aspect, W / H);
+    gl.uniform2f(u.res, W, H);
+    const md = o.mood || { sat: 1, con: 1, lift: [0, 0, 0], gain: [1, 1, 1] };
+    gl.uniform1f(u.sat, md.sat);
+    gl.uniform1f(u.con, md.con);
+    gl.uniform3f(u.lift, md.lift[0], md.lift[1], md.lift[2]);
+    gl.uniform3f(u.gain, md.gain[0], md.gain[1], md.gain[2]);
+    gl.uniform1f(u.power, o.power ?? 1);
     gl.uniform1f(u.time, o.time % 1000);
     gl.uniform1f(u.bloomI, (o.bloomI ?? 0.9) / (this.fmt.hdr ? 1 : gain));
     gl.uniform1f(u.streakI, (o.streakI ?? 0.5) / (this.fmt.hdr ? 1 : gain));
@@ -351,6 +434,7 @@ export class Post {
       ww[i] = Math.max(1e-3, w.w);
     }
     gl.uniform4fv(u.waves, wb);
+    gl.uniform1f(u.nW, Math.min(MAX_WAVES, waves.length));
     gl.uniform1fv(u.wwid, ww);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }

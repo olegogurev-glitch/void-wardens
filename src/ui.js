@@ -1,6 +1,6 @@
 // DOM HUD: top stats, tower dock, tower panel with upgrade choices, banners, overlays.
-import { TOWERS, TOWER_ORDER, ENEMIES, START_LIVES, SELL_RATIO, WORLD_W, ABILITIES, ABILITY_ORDER, DIFFICULTIES, DIFFICULTY_ORDER, towerStats, upgradeOptions, pathNames, waveHpMult } from './config.js';
-import { drawTower } from './render.js';
+import { TOWERS, TOWER_ORDER, ENEMIES, START_LIVES, SELL_RATIO, WORLD_W, COLS, ROWS, ABILITIES, ABILITY_ORDER, DIFFICULTIES, DIFFICULTY_ORDER, towerStats, upgradeOptions, pathNames, waveHpMult } from './config.js';
+import { drawTower, motion } from './render.js';
 import { TARGET_MODES } from './game.js';
 
 const ABILITY_ICONS = {
@@ -182,9 +182,31 @@ export class UI {
     e.mute.onclick = () => this.ctl.toggleMute();
     e.music.onclick = () => this.ctl.toggleMusic();
     e.cta.addEventListener('click', (ev) => { if (ev.target.closest('[data-act="wave"]')) this.ctl.startWave(); });
+    // comfort sliders update live without re-rendering the overlay (keeps the drag going)
+    e.overlay.addEventListener('input', (ev) => {
+      const r = ev.target.closest('[data-comfort]');
+      if (!r) return;
+      this.ctl.setComfort?.(r.dataset.comfort, r.value / 100);
+      const out = r.parentElement.querySelector('b');
+      if (out) out.textContent = r.value + '%';
+    });
     e.overlay.addEventListener('click', (ev) => {
       const b = ev.target.closest('[data-act]');
       if (b) this.ctl[b.dataset.act]?.(b.dataset.arg);
+    });
+    // sector cards tilt toward the pointer, with a glare that follows it
+    e.overlay.addEventListener('pointermove', (ev) => {
+      const card = ev.target.closest('.sector');
+      if (!card || motion.reduced) return;
+      const r = card.getBoundingClientRect(), x = (ev.clientX - r.left) / r.width, y = (ev.clientY - r.top) / r.height;
+      card.style.setProperty('--ry', ((x - 0.5) * 14).toFixed(2) + 'deg');
+      card.style.setProperty('--rx', ((0.5 - y) * 10).toFixed(2) + 'deg');
+      card.style.setProperty('--mx', (x * 100).toFixed(1) + '%');
+      card.style.setProperty('--my', (y * 100).toFixed(1) + '%');
+    });
+    e.overlay.addEventListener('pointerout', (ev) => {
+      const card = ev.target.closest('.sector');
+      if (card && !card.contains(ev.relatedTarget)) { card.style.removeProperty('--rx'); card.style.removeProperty('--ry'); }
     });
     // hovering a sector card previews its map behind the menu
     e.overlay.addEventListener('pointerover', (ev) => {
@@ -206,6 +228,111 @@ export class UI {
       this.view.previewStats = b && t ? towerStats(t.type, [...t.path, +b.dataset.i]) : null;
     });
     e.panel.addEventListener('pointerleave', () => (this.view.previewStats = null));
+  }
+
+  // Stat readouts count up from zero when the tower panel opens.
+  countUp(root) {
+    if (motion.reduced) return;
+    const els = [...root.querySelectorAll('.ps b')].map((el) => {
+      const m = el.textContent.match(/^([\d.]+)(.*)$/s);
+      return m ? { el, v: parseFloat(m[1]), dec: (m[1].split('.')[1] || '').length, rest: m[2] } : null;
+    }).filter(Boolean);
+    const t0 = performance.now(), D = 380;
+    const step = (now) => {
+      const p = Math.min(1, (now - t0) / D), k = 1 - (1 - p) ** 3;
+      for (const x of els) if (x.el.isConnected) x.el.textContent = (x.v * k).toFixed(x.dec) + x.rest;
+      if (p < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+
+  // Live mini-maps on the sector cards: the bus routes with data packets running along them.
+  startMiniMaps(maps) {
+    const cvs = [...this.els.overlay.querySelectorAll('canvas.s-map')];
+    const defs = new Map(maps.map((m) => [m.id, m]));
+    const routes = cvs.map((c) => {
+      const def = defs.get(c.dataset.map);
+      if (!def) return null;
+      const pts = def.paths.map((w) => w.map(([cc, rr]) => [(cc + 0.5) / COLS, (rr + 0.5) / ROWS]));
+      const lens = pts.map((ps) => ps.slice(1).reduce((acc, q, i) => acc + Math.hypot(q[0] - ps[i][0], (q[1] - ps[i][1]) * ROWS / COLS), 0));
+      return { c, pts, lens };
+    }).filter(Boolean);
+    const draw = (now) => {
+      if (!this.els.overlay.classList.contains('start')) return;
+      for (const r of routes) {
+        const c = r.c, dpr = Math.min(2, window.devicePixelRatio || 1);
+        const w = Math.round(c.clientWidth * dpr), h = Math.round(c.clientHeight * dpr);
+        if (!w || !h) continue;
+        if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+        const g = c.getContext('2d'), col = getComputedStyle(c).getPropertyValue('--c').trim() || '#00e5ff';
+        // fit the board (COLS × ROWS) into the card, centred
+        const s = Math.min(w / COLS, h / ROWS), ox = (w - s * COLS) / 2, oy = (h - s * ROWS) / 2;
+        const X = (u) => ox + u * COLS * s, Y = (v) => oy + v * ROWS * s;
+        g.clearRect(0, 0, w, h);
+        g.fillStyle = 'rgba(0,229,255,0.18)';
+        for (let i = 0; i <= COLS; i += 2) for (let j = 0; j <= ROWS; j += 2) g.fillRect(ox + i * s - 0.5, oy + j * s - 0.5, 1, 1);
+        g.lineJoin = 'miter'; g.lineCap = 'square';
+        for (const ps of r.pts) {
+          g.beginPath(); ps.forEach(([u, v], i) => (i ? g.lineTo(X(u), Y(v)) : g.moveTo(X(u), Y(v))));
+          g.strokeStyle = col; g.globalAlpha = 0.22; g.lineWidth = s * 0.9; g.stroke();
+          g.globalAlpha = 0.85; g.lineWidth = Math.max(1, s * 0.12); g.stroke();
+          g.globalAlpha = 1;
+        }
+        // packets
+        r.pts.forEach((ps, pi) => {
+          for (let k = 0; k < 3; k++) {
+            let d = (((motion.reduced ? 0 : now / 1000) * 0.18 + k / 3 + pi * 0.17) % 1) * r.lens[pi];
+            for (let i = 1; i < ps.length; i++) {
+              const a = ps[i - 1], b = ps[i], L = Math.hypot(b[0] - a[0], (b[1] - a[1]) * ROWS / COLS);
+              if (d <= L) {
+                const f = d / L, x = X(a[0] + (b[0] - a[0]) * f), y = Y(a[1] + (b[1] - a[1]) * f);
+                g.fillStyle = '#ffffff'; g.shadowColor = col; g.shadowBlur = 6 * dpr;
+                g.fillRect(x - 1.5 * dpr, y - 1.5 * dpr, 3 * dpr, 3 * dpr); g.shadowBlur = 0;
+                break;
+              }
+              d -= L;
+            }
+          }
+          const st = ps[0];
+          g.fillStyle = '#ff2a6d'; g.fillRect(X(st[0]) - 2 * dpr, Y(st[1]) - 4 * dpr, 4 * dpr, 8 * dpr);
+        });
+        const core = r.pts[0][r.pts[0].length - 1];
+        g.strokeStyle = '#ffffff'; g.lineWidth = 1.2 * dpr; g.strokeRect(X(core[0]) - 4 * dpr, Y(core[1]) - 4 * dpr, 8 * dpr, 8 * dpr);
+      }
+      if (!motion.reduced) requestAnimationFrame(draw);
+    };
+    requestAnimationFrame(draw);
+  }
+
+  // Glowing credit chips arc from a kill (client coords) into the HUD counter.
+  flyCredits(x, y, amount) {
+    if (motion.reduced || document.hidden) return;
+    this.flyers = this.flyers || 0;
+    const n = amount >= 50 ? 5 : amount >= 15 ? 2 : 1;
+    const glyph = this.els.creditsStat.querySelector('.cr') || this.els.creditsStat;
+    const tr = glyph.getBoundingClientRect();
+    const tx = tr.left + tr.width / 2 - 4.5, ty = tr.top + tr.height / 2 - 4.5;
+    for (let i = 0; i < n && this.flyers < 18; i++) {
+      this.flyers++;
+      const el = document.createElement('i');
+      el.className = 'coin';
+      document.body.appendChild(el);
+      const sx = x - 4.5 + (Math.random() - 0.5) * 14, sy = y - 4.5 + (Math.random() - 0.5) * 14;
+      const mx = sx + (Math.random() - 0.5) * 120, my = Math.min(sy, ty) - 30 - Math.random() * 60;
+      const at = (px, py, s) => `translate(${px}px, ${py}px) rotate(45deg) scale(${s})`;
+      const anim = el.animate([
+        { transform: at(sx, sy, 0.2), opacity: 0 },
+        { transform: at(sx, sy - 10, 1.25), opacity: 1, offset: 0.12 },
+        { transform: at(mx, my, 1), opacity: 1, offset: 0.5 },
+        { transform: at(tx, ty, 0.6), opacity: 0.9 },
+      ], { duration: 620 + Math.random() * 220, delay: i * 70, easing: 'cubic-bezier(.45,0,.8,.6)', fill: 'backwards' });
+      anim.onfinish = anim.oncancel = () => {
+        el.remove();
+        this.flyers--;
+        this.bump(this.els.creditsStat, 'catch');
+        this.onCoin?.();
+      };
+    }
   }
 
   bump(el, cls = 'bump') {
@@ -303,7 +430,7 @@ export class UI {
       const keepPreview = !isNew && this.panelKey.split(':')[1] === String(t.level);
       this.panelKey = key;
       this.renderPanel(t, opts, armed);
-      if (isNew) this.bump(p, 'pop');
+      if (isNew) { this.bump(p, 'pop'); this.countUp(p); }
       if (!keepPreview) this.view.previewStats = null;
       this.positionPanel();
     }
@@ -369,8 +496,19 @@ export class UI {
   }
 
   // ── Banners & overlays ──────────────────────────────────
+  // Boss name card: same banner slot, bigger, with a warning kicker
+  bossCard(name, sub) {
+    const b = this.els.banner;
+    b.classList.add('boss');
+    b.style.setProperty('--bc', '#ff2a6d');
+    b.innerHTML = `<div class="b-rule"></div><div class="b-kicker">⚠ Hostile process escalated</div>
+      <div class="b-title glitch" data-text="${name}">${name}</div><div class="b-sub">${sub}</div><div class="b-rule"></div>`;
+    this.bump(b, 'show');
+  }
+
   banner(title, sub = '', color = '#8b6cff') {
     const b = this.els.banner;
+    b.classList.remove('boss');
     b.style.setProperty('--bc', color);
     b.innerHTML = `<div class="b-rule"></div><div class="b-title">${title}</div>${sub ? `<div class="b-sub">${sub}</div>` : ''}<div class="b-rule"></div>`;
     this.bump(b, 'show');
@@ -396,6 +534,7 @@ export class UI {
           : `<span>Best: wave ${rec.wave}/${m.waves.length}</span>`;
         const hot = m.difficulty === 'Advanced';
         return `<button class="sector hudbox${m.id === current ? ' sel' : ''}" data-act="start" data-arg="${m.id}" style="--c:${hot ? '#ff2a6d' : '#00e5ff'}">
+          <canvas class="s-map" data-map="${m.id}" aria-hidden="true"></canvas>
           <span class="s-top"><span class="s-name">${m.name}</span><span class="s-diff">${m.difficulty}</span></span>
           <span class="s-title">${m.title}</span>
           <span class="s-desc">${m.desc}</span>
@@ -417,12 +556,24 @@ export class UI {
     } else if (kind === 'pause') {
       html = `<div class="ov-card"><div class="ov-kicker">Process suspended</div><h2 class="ov-h2 glitch" data-text="Paused">Paused</h2>
         <button class="btn-primary hudbox" data-act="resume">Resume</button>
-        <div class="ov-actions"><button class="btn-ghost" data-act="restart">Restart</button><button class="btn-ghost" data-act="menu">Sectors</button></div></div>`;
+        <div class="ov-actions"><button class="btn-ghost" data-act="restart">Restart</button><button class="btn-ghost" data-act="menu">Sectors</button></div>
+        <div class="diff-pick fx-pick"><div class="fx-label">Graphics <kbd>G</kbd></div>
+          <div class="dp-seg">${['auto', 'high', 'medium', 'low'].map((m) => `<button class="dp${m === data.fx ? ' on' : ''}" data-act="setFx" data-arg="${m}" style="--c:#00e5ff">${m}</button>`).join('')}</div>
+          <div class="dp-desc" style="--c:#00e5ff">${!data.webgl ? 'WebGL unavailable · bloom and post effects off' : data.fx === 'auto' ? `Adapts to your device · now ${data.tier}` : { high: 'Full resolution · bloom, lighting, reflections, lens dirt', medium: 'Lower resolution · bloom and lighting, no reflections', low: 'Base resolution · no bloom, lighting or reflections, light weather' }[data.fx]}</div>
+        </div>
+        <div class="comfort"><div class="fx-label">Comfort</div>
+          ${[['shake', 'Screen shake'], ['flash', 'Flashes']].map(([k, label]) => {
+            const v = Math.round((data.comfort?.[k] ?? 1) * 100);
+            return `<label class="slider"><span>${label}</span><input type="range" min="0" max="100" step="5" value="${v}" data-comfort="${k}"><b>${v}%</b></label>`;
+          }).join('')}
+          <div class="comfort-presets"><button class="btn-ghost" data-act="comfortPreset" data-arg="calm">Calm</button><button class="btn-ghost" data-act="comfortPreset" data-arg="full">Full</button></div>
+        </div></div>`;
     } else if (kind === 'win') {
       html = `<div class="ov-card win"><div class="ov-kicker">${data.sector} · ${data.diff.name} · Breach sealed</div><h2 class="ov-h2 glitch" data-text="System secure">System secure</h2>
         <div class="ov-stars">${stars(data.stars)}</div>
         <div class="ov-stats"><div><label>Core</label><b>${data.lives}/${data.maxLives}</b></div><div><label>Kills</label><b>${data.kills}</b></div><div><label>Towers</label><b>${data.towers}</b></div></div>
-        ${again.replace('%s', 'Play again')}</div>`;
+        ${again.replace('%s', 'Play again')}
+        <button class="btn-ghost share" data-act="share">Share screenshot</button></div>`;
     } else if (kind === 'lose') {
       html = `<div class="ov-card lose"><div class="ov-kicker">${data.sector} · ${data.diff.name} · Core compromised</div><h2 class="ov-h2 glitch" data-text="System breached">System breached</h2>
         <div class="ov-stats"><div><label>Reached</label><b>Wave ${data.wave}</b></div><div><label>Kills</label><b>${data.kills}</b></div></div>
@@ -430,6 +581,7 @@ export class UI {
     }
     o.innerHTML = html;
     o.className = 'overlay show ' + kind;
+    if (kind === 'start') this.startMiniMaps(data.maps || []);
   }
 
   hideOverlay() { this.els.overlay.className = 'overlay'; }

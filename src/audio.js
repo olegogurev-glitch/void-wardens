@@ -1,5 +1,9 @@
 // Tiny WebAudio synth — every sound is generated, no audio files.
-const GAPS = { hail: 40, shield: 60, heal: 250, shoot: 45, thump: 60, zap: 55, frost: 80, gravity: 120, pop: 35, pop2: 50, boom: 70, bigboom: 150, launch: 70, rail: 60, emp: 90 };
+import { WORLD_W } from './config.js';
+
+// how much of each sound goes to the shared reverb
+const SEND = { boom: 0.22, bigboom: 0.5, upgrade: 0.35, purge: 0.5, boss: 0.6, siren: 0.45, win: 0.4, lose: 0.5, power: 0.3, wave: 0.3, hurt: 0.3, firewall: 0.25, gravity: 0.3, clear: 0.3 };
+const GAPS = { hover: 40, coin: 45, hail: 40, shield: 60, heal: 250, shoot: 45, thump: 60, zap: 55, frost: 80, gravity: 120, pop: 35, pop2: 50, boom: 70, bigboom: 150, launch: 70, rail: 60, emp: 90 };
 
 export class Sfx {
   constructor() {
@@ -18,12 +22,49 @@ export class Sfx {
     this.master.gain.value = this.muted ? 0 : this.volume;
     const comp = c.createDynamicsCompressor();
     comp.threshold.value = -16; comp.ratio.value = 6;
-    this.master.connect(comp);
+    // master → pause muffle (low-pass) → compressor → out; a shared reverb returns into master
+    this.muffle = c.createBiquadFilter();
+    this.muffle.type = 'lowpass'; this.muffle.frequency.value = 20000; this.muffle.Q.value = 0.7;
+    this.master.connect(this.muffle);
+    this.muffle.connect(comp);
     comp.connect(c.destination);
+    this.verb = c.createConvolver();
+    const ir = c.createBuffer(2, Math.floor(c.sampleRate * 2.2), c.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = ir.getChannelData(ch);
+      for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length) ** 2.6;
+    }
+    this.verb.buffer = ir;
+    this.verbIn = c.createGain(); this.verbIn.gain.value = 0.55;
+    this.verbIn.connect(this.verb); this.verb.connect(this.master);
+    this.out = this.master;
     const len = c.sampleRate * 2;
     this.noiseBuf = c.createBuffer(1, len, c.sampleRate);
     const d = this.noiseBuf.getChannelData(0);
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  }
+
+  // muffle everything (music included) while the game is paused
+  setPaused(p) {
+    if (this.muffle) this.muffle.frequency.setTargetAtTime(p ? 650 : 20000, this.ctx.currentTime, 0.08);
+  }
+
+  // per-sound output: optional stereo pan from the world x, optional reverb send
+  route(x, send) {
+    const c = this.ctx;
+    let node = this.master;
+    if (x !== undefined && c.createStereoPanner) {
+      const p = c.createStereoPanner();
+      p.pan.value = Math.max(-1, Math.min(1, (x / WORLD_W) * 2 - 1)) * 0.75;
+      p.connect(node); node = p;
+    }
+    if (send) {
+      const o = c.createGain(), v = c.createGain();
+      v.gain.value = send;
+      o.connect(node); o.connect(v); v.connect(this.verbIn);
+      node = o;
+    }
+    return node;
   }
 
   setMuted(m) {
@@ -40,7 +81,7 @@ export class Sfx {
     g.gain.setValueAtTime(0.0001, t);
     g.gain.linearRampToValueAtTime(gain, t + attack);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(g); g.connect(this.master);
+    o.connect(g); g.connect(this.out);
     o.start(t); o.stop(t + dur + 0.05);
   }
 
@@ -55,17 +96,21 @@ export class Sfx {
     const g = c.createGain();
     g.gain.setValueAtTime(gain, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    s.connect(fl); fl.connect(g); g.connect(this.master);
+    s.connect(fl); fl.connect(g); g.connect(this.out);
     s.start(t, Math.random() * 0.5);
     s.stop(t + dur + 0.05);
   }
 
-  play(name) {
+  play(name, x) {
     if (!this.ctx || this.muted || this.ctx.state !== 'running') return;
     const now = performance.now();
     if (now - (this.last[name] || 0) < (GAPS[name] ?? 25)) return;
     this.last[name] = now;
-    const r = Math.random();
+    this.out = this.route(x, SEND[name] || 0);
+    try { this.voice(name, Math.random()); } finally { this.out = this.master; }
+  }
+
+  voice(name, r) {
     switch (name) {
       case 'shoot': this.tone({ type: 'square', f0: 1100 + r * 250, f1: 380, dur: 0.07, gain: 0.03 }); break;
       case 'thump': this.tone({ type: 'triangle', f0: 520, f1: 140, dur: 0.12, gain: 0.08 }); break;
@@ -90,19 +135,29 @@ export class Sfx {
       case 'pop':
         this.tone({ type: 'triangle', f0: 600 + r * 300, f1: 90, dur: 0.1, gain: 0.055 });
         this.noise({ dur: 0.08, gain: 0.035, filter: 'highpass', f0: 2000 });
+        // derez crackle
+        this.noise({ dur: 0.05, gain: 0.03, filter: 'highpass', f0: 5000, delay: 0.03 });
+        this.tone({ type: 'square', f0: 3000, f1: 700, dur: 0.05, gain: 0.01, delay: 0.02 });
         break;
       case 'pop2': this.noise({ dur: 0.18, gain: 0.08, filter: 'lowpass', f0: 1800, f1: 200 }); break;
       case 'boom':
         this.noise({ dur: 0.45, gain: 0.2, filter: 'lowpass', f0: 1200, f1: 80 });
         this.tone({ type: 'sine', f0: 140, f1: 40, dur: 0.35, gain: 0.14 });
+        this.tone({ type: 'sine', f0: 62, f1: 32, dur: 0.45, gain: 0.2, attack: 0.01 }); // sub thump
         break;
       case 'bigboom':
         this.noise({ dur: 1.2, gain: 0.32, filter: 'lowpass', f0: 900, f1: 40 });
         this.tone({ type: 'sine', f0: 90, f1: 25, dur: 1, gain: 0.28 });
+        this.tone({ type: 'sine', f0: 48, f1: 20, dur: 1.4, gain: 0.38, attack: 0.02 }); // sub
+        this.noise({ dur: 0.12, gain: 0.12, filter: 'highpass', f0: 3000 }); // crack
         break;
       case 'place':
         this.tone({ type: 'sine', f0: 520, dur: 0.08, gain: 0.08 });
         this.tone({ type: 'sine', f0: 780, dur: 0.14, gain: 0.08, delay: 0.07 });
+        // build-in: rising hum + scanning sweep, lands as the hologram powers on
+        this.tone({ type: 'sawtooth', f0: 110, f1: 440, dur: 0.5, gain: 0.018, attack: 0.05 });
+        this.noise({ dur: 0.45, gain: 0.035, filter: 'bandpass', f0: 400, f1: 3500, q: 3 });
+        this.tone({ type: 'sine', f0: 1320, dur: 0.12, gain: 0.04, delay: 0.42 });
         break;
       case 'upgrade':
         [523, 659, 784, 1047].forEach((f, i) => this.tone({ type: 'triangle', f0: f, dur: 0.18, gain: 0.07, delay: i * 0.06 }));
@@ -146,6 +201,25 @@ export class Sfx {
         this.tone({ type: 'sawtooth', f0: 60, f1: 1600, dur: 0.6, gain: 0.08 });
         this.noise({ dur: 0.9, gain: 0.22, filter: 'lowpass', f0: 6000, f1: 200 });
         this.tone({ type: 'sine', f0: 110, f1: 30, dur: 0.9, gain: 0.25, delay: 0.1 });
+        break;
+      case 'hover': this.tone({ type: 'sine', f0: 2300 + r * 200, dur: 0.025, gain: 0.012, attack: 0.002 }); break;
+      case 'coin': this.tone({ type: 'triangle', f0: 1700 + r * 500, f1: 2700, dur: 0.07, gain: 0.022 }); break;
+      case 'power': // CRT power-on: thunk, flyback whine, static
+        this.tone({ type: 'sine', f0: 70, f1: 130, dur: 0.25, gain: 0.16 });
+        this.tone({ type: 'sine', f0: 9000, f1: 12500, dur: 0.6, gain: 0.008, attack: 0.05 });
+        this.noise({ dur: 0.35, gain: 0.05, filter: 'highpass', f0: 5000, f1: 9000 });
+        break;
+      case 'wipe':
+        this.noise({ dur: 0.3, gain: 0.08, filter: 'bandpass', f0: 500, f1: 6000, q: 1.5 });
+        this.tone({ type: 'square', f0: 140, f1: 55, dur: 0.22, gain: 0.03 });
+        break;
+      case 'siren': // two-tone alarm for the boss entrance
+        for (let i = 0; i < 4; i++) this.tone({ type: 'triangle', f0: i % 2 ? 880 : 620, dur: 0.24, gain: 0.07, delay: i * 0.26, attack: 0.02 });
+        this.tone({ type: 'sawtooth', f0: 41, dur: 1.1, gain: 0.08, attack: 0.1 });
+        break;
+      case 'tick': // final-wave countdown
+        this.tone({ type: 'square', f0: 1250, dur: 0.05, gain: 0.04 });
+        this.tone({ type: 'sine', f0: 90, f1: 50, dur: 0.25, gain: 0.18 });
         break;
       case 'error': this.tone({ type: 'square', f0: 160, f1: 120, dur: 0.12, gain: 0.045 }); break;
       case 'click': this.tone({ type: 'sine', f0: 900, dur: 0.04, gain: 0.04 }); break;

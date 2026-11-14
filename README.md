@@ -57,13 +57,36 @@ The start screen is a sector select with a difficulty picker. Your best result i
 
 The Hard and Nightmare bonuses **ramp through the run**: 30% of the bonus on wave 1, rising to the full value on the last wave. The opening stays fair while you have no economy, and the late game gets the pressure. Easy's reductions apply in full from the start. Extra enemies arrive in the same time window, so waves get denser rather than longer. Tune it all in `DIFFICULTIES` in `src/config.js`.
 
+## Boot sequence, fullscreen and landscape
+
+Every load opens with a boot console: the grid monitor detects the breach, traces it to the Core and asks **Deploy the protection?** with a single **YES** (or Enter/Y). Tapping during the log fast-forwards it. YES unlocks audio, starts the menu music, and requests **fullscreen + landscape lock**.
+
+- Landscape lock works on Android Chrome (in fullscreen). iPhone Safari can't go fullscreen or lock orientation, so on any touch device held in portrait a **Rotate to landscape** screen covers the game, and a running wave pauses automatically.
+- Landscape phones get their own layout: compact HUD on top and the tower/ability dock as a column on the right, so the board gets the full height.
+- When embedding in Pixo with an `<iframe>`, add `allow="fullscreen"` (and `allowfullscreen`) or the browser will refuse fullscreen; the game then simply plays in the frame.
+- `?intro=0` skips the console (handy while developing).
+
 ## Graphics
 
 The scene is drawn with Canvas 2D, then composited through a WebGL post-processing pass (`src/post.js`): multi-scale bloom, anamorphic streaks on white-hot cores, shockwave refraction riding big blasts, chromatic aberration on impacts, scanlines, vignette and film grain. On top of that the renderer lights the grid dynamically around towers, enemies, projectiles and explosions, and draws enemy motion trails, drifting motes and soft bokeh.
 
+Motion: wave-ending kills and the boss kill land in slow motion with a push-in on the target; enemies print in behind a scanline and "derez" into shearing slices when destroyed; turrets swing on a spring (slight overshoot, recoil kick, idle scanning); towers and enemies reflect on a glossy floor; and the grid lighting, bloom and Core pulse ride the soundtrack's kick and snare. Towers build in as a traced hologram and morph when upgraded (the old form tears away in slices); enemies get knocked back when hit; Arc Relays visibly charge and Daemon Launcher hatches slide open before a salvo; the Core cracks and glitches as integrity drops. The colour grade follows the moment (cool between waves, hot during the boss, a red pulse when the Core is critical, grey on a loss, warm on a win); sectors open with a CRT power-on, the menu returns through a glitch wipe, and credits fly from each kill into the HUD counter. Selected towers show a radar-style range (bearing ticks, a sweep that pings enemies it passes); the placement preview is a flickering hologram; towers are drawn as thick slabs and the data bus as a sunken trench lit from the top-left; and the post pass adds lens dirt that catches big flashes.
+
+Big moments and atmosphere: the boss arrives with a short entrance — slow motion, a push-in on the breach, letterbox bars, a red alarm across the grid, a siren and a name card. Each sector has its own look (set in `theme` in `src/maps.js`): a night city far below the glass grid that drifts with parallax, ambient light colours, a colour grade, and rain with ripples in Sector 02. At max level every tower type gets a signature idle effect (heat shimmer, orbiting fragments, frost mist, arc crackle).
+
+Sound: effects pan left/right with where they happen, big blasts get a sub-bass layer and a shared reverb tail, everything is muffled while paused, and there are cues for hovering controls, credits landing, the CRT power-on, the glitch wipe and the boss siren.
+
+Comfort: the pause menu has **Screen shake** and **Flashes** sliders plus **Calm** / **Full** presets (remembered). They scale shake, camera punches, shockwaves, glitches, flashes, the beat pulse and the red alarms.
+
+More feedback: before the final wave red searchlights sweep from the Core and a 3-2-1 countdown ticks in; each malware type dies its own way (Worms come apart, Rootkits dissolve into static, Patchers implode, Cipher shields shatter); merged damage numbers float off each enemy, bigger and warmer for bigger hits; the sector cards tilt toward the pointer over a live mini-map of their routes; tower stats count up when the panel opens and upgrade buttons charge along their edge on hover; phones vibrate on Core hits and the boss kill (Android); and the win screen has **Share screenshot**, which builds a framed image with your result and opens the share sheet (or downloads a PNG).
+
 - Without WebGL, the game falls back to plain 2D with the same art and lighting (no bloom).
-- The renderer starts at the **high** tier and steps down on its own (**medium** → **low**) if frames average under ~40 fps.
-- Pin a tier with `?fx=low`, `?fx=medium` or `?fx=high`; force the 2D fallback with `?fx=2d`.
+- **Graphics setting** in the pause menu (or press **G**): **Auto** (default) starts at high on desktop and medium on phones, and steps down (**medium** → **low**) if frames average under ~40 fps over 1.5 s; **High / Medium / Low** pin a tier. The choice is remembered.
+  - **High:** up to 2× resolution, bloom + streaks, lens dirt, grid lighting, floor reflections, full weather and ambience.
+  - **Medium:** 1.25× resolution, bloom + streaks and grid lighting; no reflections or lens dirt; 70% rain, half the motes.
+  - **Low:** 1× resolution, no bloom, lighting or reflections; static city, 35% rain, no motes/bokeh, simpler deaths.
+  - Tier flags live in `QUALITY` at the top of the renderer section of `src/render.js`.
+- `?fx=low`, `?fx=medium` or `?fx=high` overrides it for one visit; `?fx=2d` forces the 2D fallback.
 - With the OS "reduce motion" setting, shake, refraction, glitch and flashes are toned down.
 
 ## Controls
@@ -77,7 +100,7 @@ The scene is drawn with Canvas 2D, then composited through a WebGL post-processi
 | `S` ×2 | Sell the selected tower (70% refund). The first press arms it, the second confirms within 2.5s |
 | `Space` | Run the next wave. Calling it early earns +3 credits per second skipped. The next wave's makeup is previewed above the button |
 | `Z` / `X` | Abilities: **Firewall** (then click the bus) · **System Purge** |
-| `F` / `P` / `M` / `N` | Speed 1×/2×/3× · Pause · Mute all · Music on/off |
+| `F` / `P` / `M` / `N` / `G` | Speed 1×/2×/3× · Pause · Mute all · Music on/off · Graphics quality |
 | Right-click / `Esc` | Cancel placing or deselect |
 
 **Abilities.** Both start ready, and their cooldowns run on game time. Tune them in `ABILITIES` in `src/config.js`.

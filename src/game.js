@@ -51,7 +51,8 @@ export class Game {
 
   on(ev, fn) { (this.handlers[ev] ||= []).push(fn); }
   emit(ev, arg) { const h = this.handlers[ev]; if (h) for (const f of h) f(arg); }
-  sfx(name) { this.emit('sfx', name); }
+  // x (world px, optional) lets the audio pan the sound to where it happened
+  sfx(name, x) { this.emit('sfx', x === undefined ? name : { name, x }); }
 
   setMap(map) {
     this.map = map;
@@ -255,7 +256,7 @@ export class Game {
             healed++;
           }
           fx.ring(e.x, e.y, 6, h.radius, 0.5, e.def.color, 2);
-          if (healed) this.sfx('heal');
+          if (healed) this.sfx('heal', e.x);
         }
       }
 
@@ -292,7 +293,7 @@ export class Game {
     this.fx.flash('255,40,80', e.def.boss ? 0.5 : 0.22);
     this.fx.ring(C.x, C.y, 10, 80, 0.5, '#ff2a6d', 4);
     this.fx.burst(C.x, C.y, '#ff2a6d', 24, 220, 4, 0.6);
-    this.sfx('hurt');
+    this.sfx('hurt', C.x);
     this.emit('leak', e);
     if (e === this.boss) this.boss = null;
     if (this.lives <= 0 && this.state !== 'lost') {
@@ -310,7 +311,7 @@ export class Game {
     this.fx.ring(C.x, C.y, 10, 400, 1.2, '#ff2a6d', 8);
     this.fx.burst(C.x, C.y, '#ff2a6d', 120, 600, 6, 1.4);
     this.fx.burst(C.x, C.y, '#ffffff', 40, 400, 4, 1);
-    this.sfx('bigboom');
+    this.sfx('bigboom', C.x);
   }
 
   // Can towers see (and aim at) this enemy? Cloaked Rootkits only once revealed.
@@ -326,7 +327,7 @@ export class Game {
       e.flash = 0.07;
       this.fx.ring(e.x, e.y, e.radius + 4, e.radius + 16, 0.25, '#ffffff', 2);
       this.fx.burst(e.x, e.y, e.def.color, 8, 140, 2, 0.3, 'spark', 4);
-      this.sfx('shield');
+      this.sfx('shield', e.x);
       return 0;
     }
     let dmg = amount * (1 + e.vulnAmt);
@@ -348,17 +349,21 @@ export class Game {
     this.credits += reward;
     const fx = this.fx, col = e.def.color;
     fx.text(e.x, e.y - e.radius - 4, '+' + reward, '#ffb800', e.def.boss ? 22 : 12);
+    this.emit('reward', { x: e.x, y: e.y, amount: reward });
     if (e.def.split) {
       const { type, count } = e.def.split;
       for (let i = 0; i < count; i++) this.spawnLater.push({ type, mult: e.mult, path: e.path, d: Math.max(1, e.d - i * 12) });
     }
+    // presentation hook: the kill that ends a wave (the boss has its own event)
+    if (!e.def.boss && this.state === 'wave' && !this.spawnQueue.length && !this.spawnLater.length
+      && this.enemies.every((o) => o === e || o.dead || o.leaked)) this.emit('finalKill', e);
     if (!e.def.boss && e.radius < 14) {
       fx.burst(e.x, e.y, col, 14, 170, 3, 0.45);
       fx.burst(e.x, e.y, '#ffffff', 6, 220, 1.5, 0.25, 'spark', 4);
       fx.burst(e.x, e.y, col, 3, 120, 3.5, 0.5, 'shard', 3);
       fx.ring(e.x, e.y, 3, 26, 0.3, col, 2);
       fx.add({ kind: 'glow', x: e.x, y: e.y, vx: 0, vy: 0, life: 0.1, size: 18, color: col });
-      this.sfx('pop');
+      this.sfx('pop', e.x);
     } else if (!e.def.boss) {
       fx.burst(e.x, e.y, col, 26, 210, 4, 0.6);
       fx.burst(e.x, e.y, col, 10, 160, 4, 0.9, 'debris', 2.5);
@@ -368,7 +373,7 @@ export class Game {
       fx.ring(e.x, e.y, 6, 46, 0.4, col, 3);
       fx.add({ kind: 'glow', x: e.x, y: e.y, vx: 0, vy: 0, life: 0.18, size: 44, color: col });
       fx.shake(2.5);
-      this.sfx('boom');
+      this.sfx('boom', e.x);
     } else {
       // Boss: chained detonations, then a supernova
       const x = e.x, y = e.y;
@@ -378,7 +383,7 @@ export class Game {
           fx.burst(ox, oy, i % 2 ? '#ff1f3d' : '#ff2bd6', 22, 240, 4, 0.6);
           fx.ring(ox, oy, 4, 50, 0.35, '#00e5ff', 3);
           fx.shake(6);
-          this.sfx('boom');
+          this.sfx('boom', ox);
         });
       }
       fx.after(1.15, () => {
@@ -391,10 +396,10 @@ export class Game {
         fx.burst(x, y, '#00e5ff', 24, 300, 6, 1.6, 'debris', 1.5);
         fx.burst(x, y, '#ff2a6d', 26, 420, 7, 1.5, 'shard', 1.6);
         fx.burst(x, y, '#ffb347', 40, 160, 3, 2.2, 'ember', 0.9);
-        this.sfx('bigboom');
+        this.sfx('bigboom', x);
       });
       if (e === this.boss) this.boss = null;
-      this.emit('bossDown');
+      this.emit('bossDown', e);
     }
   }
 
@@ -441,7 +446,7 @@ export class Game {
     this.fx.ring(spot.x, spot.y, 4, 40, 0.4, def.color, 3);
     this.fx.burst(spot.x, spot.y, def.color, 24, 200, 3, 0.5);
     this.fx.shake(2);
-    this.sfx('firewall');
+    this.sfx('firewall', spot.x);
     return true;
   }
 
@@ -471,7 +476,7 @@ export class Game {
     this.firewalls = this.firewalls.filter((o) => o !== fw);
     const col = ABILITIES.firewall.color;
     this.fx.burst(fw.x, fw.y, col, smashed ? 30 : 14, smashed ? 260 : 120, 3, 0.5, smashed ? 'debris' : 'glow', 2);
-    if (smashed) { this.fx.shake(6); this.sfx('firewallDown'); }
+    if (smashed) { this.fx.shake(6); this.sfx('firewallDown', fw.x); }
   }
 
   usePurge() {
@@ -518,7 +523,7 @@ export class Game {
     this.grid.set(c + ',' + r, t);
     this.fx.ring(t.x, t.y, 4, 34, 0.45, def.color, 3);
     this.fx.burst(t.x, t.y, def.color, 18, 140, 3, 0.5);
-    this.sfx('place');
+    this.sfx('place', t.x);
     return t;
   }
 
@@ -540,7 +545,7 @@ export class Game {
       const a = (i / 28) * TAU;
       fx.add({ kind: 'glow', x: t.x + Math.cos(a) * 18, y: t.y + Math.sin(a) * 8, vx: Math.cos(a) * 20, vy: -rand(60, 170), life: rand(0.5, 0.9), size: 3, color: col, drag: 1 });
     }
-    this.sfx('upgrade');
+    this.sfx('upgrade', t.x);
     return true;
   }
 
@@ -552,7 +557,7 @@ export class Game {
     this.fx.burst(t.x, t.y, '#ffb800', 20, 160, 3, 0.5);
     this.fx.ring(t.x, t.y, 30, 4, 0.35, '#ffb800', 2);
     this.fx.text(t.x, t.y - 20, '+' + refund, '#ffb800', 14);
-    this.sfx('sell');
+    this.sfx('sell', t.x);
     return refund;
   }
 
@@ -679,7 +684,7 @@ export class Game {
     }
     fx.lightning(pts, s.color, mult < 1 ? 1.6 : 2.4, 0.18);
     fx.add({ kind: 'glow', x: t.x, y: t.y - 22, vx: 0, vy: 0, life: 0.15, size: mult < 1 ? 14 : 20, color: s.color });
-    this.sfx('zap');
+    this.sfx('zap', t.x);
   }
 
   // Lightning / pulse status effects
@@ -733,7 +738,7 @@ export class Game {
           fx.add({ kind: 'glow', x: bx, y: by, vx: 0, vy: 0, life: 0.07, size: 9 * s.boltSize, color: s.color });
         }
         t.recoil = 1;
-        this.sfx(s.splash ? 'thump' : 'shoot');
+        this.sfx(s.splash ? 'thump' : 'shoot', t.x);
         break;
       }
 
@@ -765,7 +770,7 @@ export class Game {
         fx.add({ kind: 'glow', x: x1, y: y1, vx: 0, vy: 0, life: 0.12, size: 22, color: s.color });
         fx.shake(2.5);
         t.recoil = 1;
-        this.sfx('rail');
+        this.sfx('rail', t.x);
         break;
       }
 
@@ -792,7 +797,7 @@ export class Game {
         fx.ring(t.x, t.y - 10, 10, s.range, 0.45, s.color, 4);
         fx.add({ kind: 'glow', x: t.x, y: t.y - 22, vx: 0, vy: 0, life: 0.2, size: 36, color: s.color });
         fx.shake(2);
-        this.sfx('emp');
+        this.sfx('emp', t.x);
         break;
       }
 
@@ -817,7 +822,7 @@ export class Game {
               fx.beam(sx, sy, e.x, e.y, '#ffffff', 1.5, 0.12);
               fx.burst(e.x, e.y, '#eaf8ff', 8, 130, 2.5, 0.35);
               this.hurt(e, s.damage * 2, t, true);
-              this.sfx('hail');
+              this.sfx('hail', e.x);
             });
           }
         }
@@ -830,7 +835,7 @@ export class Game {
           const r0 = s.singularity ? s.range : 10;
           fx.add({ kind: 'glow', x: t.x + Math.cos(a) * r0, y: t.y + Math.sin(a) * r0, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0.5, size: 2.5, color: s.color, drag: 2.5 });
         }
-        this.sfx(s.singularity ? 'gravity' : 'frost');
+        this.sfx(s.singularity ? 'gravity' : 'frost', t.x);
         break;
       }
 
@@ -855,7 +860,7 @@ export class Game {
           });
         }
         t.recoil = 1;
-        this.sfx('launch');
+        this.sfx('launch', t.x);
         break;
       }
     }
@@ -971,7 +976,7 @@ export class Game {
       fx.add({ kind: 'smoke', x: x + rand(-8, 8), y: y + rand(-8, 8), vx: rand(-30, 30), vy: rand(-30, 30), life: rand(0.5, 0.9), size: radius * 0.18, color: '#5c5680', drag: 2 });
     }
     if (big) { fx.shake(5); fx.flash(this.hexToRgb(color), 0.12); }
-    this.sfx(big ? 'bigboom' : small ? 'pop2' : 'boom');
+    this.sfx(big ? 'bigboom' : small ? 'pop2' : 'boom', x);
   }
 
   hexToRgb(hex) {

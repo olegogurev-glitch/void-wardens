@@ -5,6 +5,8 @@
 //         the same Core tile; paths may merge and share a trunk line.
 //  waves: groups of [enemyType, count, spawnInterval, startDelay, path?]
 //         path = 0 | 1 | 'alt' (alternate between breaches). Defaults to 0.
+//  theme: presentation only — the city lights far below the grid, rain, the
+//         ambient light colours and a colour grade (lift/gain) for the sector.
 // ─────────────────────────────────────────────────────────────
 
 const TRUNK_02 = [[16, 9], [16, 4], [23, 4], [23, 14], [28, 14], [28, 9], [30, 9]];
@@ -17,6 +19,11 @@ export const MAPS = [
     difficulty: 'Intro',
     desc: 'One breach, one long winding data bus. Learn the towers.',
     startCredits: 260,
+    theme: {
+      city: { density: 0.55, colors: ['#00e5ff', '#7fe9ff', '#b967ff', '#ffffff'], seed: 11 },
+      rain: 0,
+      ambient: ['#00e5ff', '#ff2a6d', '#b967ff'],
+    },
     paths: [
       [[0, 4], [7, 4], [7, 13], [14, 13], [14, 4], [21, 4], [21, 13], [27, 13], [27, 8], [30, 8]],
     ],
@@ -40,6 +47,12 @@ export const MAPS = [
     difficulty: 'Advanced',
     desc: 'Two breaches feed one trunk line. New malware: Worms, Ciphers, Rootkits, Patchers.',
     startCredits: 320,
+    theme: {
+      city: { density: 1, colors: ['#ffb347', '#ff6a3d', '#ff2a6d', '#ffd27a'], seed: 23 },
+      rain: 1,
+      ambient: ['#ff8a3d', '#ff2a6d', '#ffb800'],
+      grade: { lift: [0.012, 0.004, 0], gain: [1.06, 0.97, 0.9] },
+    },
     hpCurve: [0.16, 0.028], // 12 waves → gentler growth than Sector 01's default
     paths: [
       [[0, 3], [8, 3], [8, 9], ...TRUNK_02],
