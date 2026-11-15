@@ -796,6 +796,10 @@ kbd {
 .boot-head b { color: var(--muted); font-weight: 400; }
 .boot-mark { width: 10px; height: 10px; background: var(--hot); box-shadow: 0 0 10px var(--hot); animation: cursor .6s steps(1) infinite; }
 .boot-clock { margin-left: auto; color: var(--muted); letter-spacing: .06em; }
+.boot-snd { margin-left: auto; padding: 2px 7px; border: 1px solid rgba(255, 184, 0, .5); color: var(--amber); font-size: 10px; letter-spacing: .14em; cursor: pointer; animation: sndpulse 1.4s ease-in-out infinite; }
+@keyframes sndpulse { 50% { opacity: .4; } }
+.boot-snd[hidden] { display: none; }
+.boot-snd:not([hidden]) ~ .boot-clock { margin-left: 14px; }
 .boot-log { margin: 12px 0 10px; min-height: 13.6em; font-size: clamp(10.5px, 1.45vw, 14px); line-height: 1.7; }
 .ln { display: flex; align-items: baseline; gap: 10px; white-space: nowrap; overflow: hidden; }
 .ln .ts { color: #3d6070; flex: none; }

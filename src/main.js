@@ -793,7 +793,7 @@ function deploy() {
   renderer.transition('power');
 }
 view.intro = new URLSearchParams(location.search).get('intro') !== '0';
-if (view.intro) runIntro({ onDeploy: deploy, reduced: motion.reduced });
+if (view.intro) runIntro({ onDeploy: deploy, reduced: motion.reduced, sfx });
 else document.body.classList.add('deployed');
 
 // Phones in portrait: the rotate prompt covers the game (CSS), and a running wave pauses.
