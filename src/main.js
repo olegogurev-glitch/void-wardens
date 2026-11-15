@@ -8,7 +8,7 @@ import { Sfx } from './audio.js';
 import { Music } from './music.js';
 import { MAPS, mapById } from './maps.js';
 import { runIntro } from './intro.js';
-import { dailyFor, dayKey, prevDayKey } from './modes.js';
+import { dailyFor, dayKey, prevDayKey, isDayKey } from './modes.js';
 import { t as T, fmt, count, setLang, translatePage } from './i18n.js';
 
 translatePage();
@@ -28,7 +28,8 @@ const sfx = new Sfx();
 const music = new Music(sfx);
 // Graphics: the pause menu (or G) picks Auto / High / Medium / Low and it's remembered.
 // ?fx=low|medium|high overrides it for one visit; ?fx=2d skips WebGL post-processing entirely.
-const fxParam = new URLSearchParams(location.search).get('fx');
+const urlParams = new URLSearchParams(location.search);
+const fxParam = urlParams.get('fx');
 const renderer = new Renderer(canvas, game.map, { quality: fxParam || store.get('fx'), post: fxParam !== '2d' });
 const FX_MODES = ['auto', 'high', 'medium', 'low'];
 // comfort: screen shake and flash strength (0..1), remembered
@@ -90,12 +91,12 @@ const menuData = () => {
 // the difficulty picked on the start screen (the Daily plays its own fixed one meanwhile)
 const menuDifficulty = () => (DIFFICULTIES[store.get('difficulty')] ? store.get('difficulty') : 'normal');
 
-// ── Pixo (pixoarcade.com) runs the game in a frame and puts Endless runs on its leaderboards
-// (one board per difficulty): tell it when a run starts and ends. Does nothing when the game runs
-// on its own.
-function pixoRun(type, data) {
+// ── Pixo (pixoarcade.com) runs the game in a frame and puts Endless runs (one board per
+// difficulty) and Daily runs (its daily board, with the day played) on its leaderboards: tell it
+// when a run starts and ends. Does nothing when the game runs on its own.
+function pixoRun(type, data, board = `endless-${game.difficulty}`) {
   if (window.parent === window) return;
-  try { window.parent.postMessage({ pixo: type, board: `endless-${game.difficulty}`, ...data }, location.origin); } catch (e) { /* not hosted */ }
+  try { window.parent.postMessage({ pixo: type, board, ...data }, location.origin); } catch (e) { /* not hosted */ }
 }
 
 // ── Endless: best wave (then score) per sector and difficulty ──
@@ -109,15 +110,26 @@ function saveEndless(rec) {
 }
 
 // ── Daily challenge: today's best score, runs, and the day streak ──
-// { day, best, runs, streak, last } — `last` is the last day a run was finished
-const dailyToday = () => dailyFor(dayKey());
+// { day, best, runs, streak, last } — `last` is the last day a run was finished.
+// Days are UTC days. Pixo opens the game with ?daily=<day> to play that day's challenge.
+const askedDay = isDayKey(urlParams.get('daily')) ? urlParams.get('daily') : null;
+const todayKey = () => askedDay || dayKey();
+const dailyToday = () => dailyFor(todayKey());
+// Saves from before the switch to UTC days may carry a local day up to a day ahead of the UTC one
+// (players east of Greenwich after their midnight): that day counts as today, so nobody loses a
+// record or a streak over the switch.
+function dailySaved() {
+  const r = readJSON('daily', {}), today = todayKey();
+  const clamp = (d) => (typeof d === 'string' && d > today ? today : d);
+  return { r: { ...r, day: clamp(r.day), last: clamp(r.last) }, today };
+}
 function dailyRecord() {
-  const r = readJSON('daily', {}), today = dayKey();
+  const { r, today } = dailySaved();
   const streak = r.last === today || r.last === prevDayKey(today) ? r.streak || 0 : 0; // a missed day breaks it
   return r.day === today ? { best: r.best || 0, runs: r.runs || 0, streak } : { best: 0, runs: 0, streak };
 }
 function saveDaily(score) {
-  const r = readJSON('daily', {}), today = dayKey();
+  const { r, today } = dailySaved();
   const fresh = r.day !== today;
   const prevBest = fresh ? 0 : r.best || 0;
   const streak = r.last === today ? r.streak || 1 : r.last === prevDayKey(today) ? (r.streak || 0) + 1 : 1;
@@ -261,7 +273,8 @@ const view = {
   placing: null, placingStats: null, hover: null, selected: null, previewStats: null,
   speed: 1, paused: false, started: false, muted: store.get('muted') === '1',
   musicOn: store.get('music') !== '0',
-  mode: ['campaign', 'endless', 'daily'].includes(store.get('mode')) ? store.get('mode') : 'campaign', // start-screen tab
+  // start-screen tab (opened with ?daily from Pixo's "Challenge of the day": the Daily tab)
+  mode: askedDay ? 'daily' : ['campaign', 'endless', 'daily'].includes(store.get('mode')) ? store.get('mode') : 'campaign',
 };
 
 const ctl = {
@@ -456,6 +469,7 @@ const ctl = {
     ui.els.pause.classList.remove('on');
     view.started = true;
     if (game.endless) pixoRun('run-start');
+    else if (game.mode === 'daily') pixoRun('run-start', { day: dailyToday().key }, 'daily');
     ui.hideOverlay();
     renderer.transition('power');
     sfx.setPaused(false);
@@ -590,6 +604,8 @@ const fmtN = fmt;
 function finishDaily(won) {
   const stars = won ? starsFor(game.lives, game.maxLives) : 0;
   const d = dailyToday(), rec = saveDaily(game.score);
+  // Pixo's daily board: score ranks; `core` is the integrity left (0 = breached)
+  pixoRun('run-end', { score: Math.round(game.score), wave: game.wave, detail: { kills: game.kills, core: won ? game.lives : 0 } }, 'daily');
   const data = payData(won, stars);
   commitRun({ won, difficulty: game.difficulty, daily: rec });
   setTimeout(() => checkAchievements(won ? { won, stars, lives: game.lives, difficulty: game.difficulty } : null), 2300);

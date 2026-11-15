@@ -21,13 +21,18 @@ export function hash(str) {
   return h >>> 0;
 }
 
-// Local calendar day, e.g. "2026-11-15" (the daily rolls over at the player's midnight)
+// UTC calendar day, e.g. "2026-11-15": the Daily rolls over at 00:00 UTC for everyone, so every
+// player in the world gets the same challenge on the same day (Pixo's daily boards use the same day).
+// It used to roll over at the player's local midnight; saves from then still read fine (main.js).
 export function dayKey(d = new Date()) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return d.toISOString().slice(0, 10);
 }
 export function prevDayKey(key) {
-  const [y, m, d] = key.split('-').map(Number);
-  return dayKey(new Date(y, m - 1, d - 1));
+  return dayKey(new Date(Date.parse(key + 'T00:00:00Z') - 86400000));
+}
+export function isDayKey(s) {
+  const t = typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) ? Date.parse(s + 'T00:00:00Z') : NaN;
+  return Number.isFinite(t) && dayKey(new Date(t)) === s;
 }
 
 // Today's challenge: one sector and one twist, picked from the date alone, so everyone
