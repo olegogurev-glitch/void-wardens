@@ -3,9 +3,11 @@
 import {
   TILE, WORLD_W, WORLD_H, ENEMIES, TOWERS,
   ABILITIES, DIFFICULTIES, difficultyOf, START_CREDITS, START_LIVES, BREAK_TIME, SELL_RATIO, EARLY_BONUS_PER_SEC,
-  waveHpMult, waveClearBonus, towerStats, upgradeOptions,
+  waveHpMult, waveClearBonus, towerStats, upgradeOptions, RULES, CARDS, CARD_ODDS, CARD_EVERY, HP_SCALE,
+  MUTATORS, SCORE,
 } from './config.js';
 import { FX } from './fx.js';
+import { endlessWave, mulberry32 } from './modes.js';
 
 const TAU = Math.PI * 2;
 export const TARGET_MODES = ['first', 'last', 'strong', 'close'];
@@ -17,9 +19,17 @@ export function turnTowards(a, b, max) {
   return a + d;
 }
 
+const NO_MUT = Object.freeze({});
+
 export class Game {
   constructor(map, difficulty = 'normal') {
     this.map = map;
+    this.perks = {}; // permanent research, set by the app before a run (the sim runs without it)
+    // mode: 'campaign' | 'endless' | 'daily'. mutator: a MUTATORS key (Daily twist).
+    // seed: seeds card draws (Daily) so everyone gets the same hands. Set by the app before reset().
+    this.mode = 'campaign';
+    this.mutator = null;
+    this.seed = null;
     this.difficulty = difficulty;
     this.fx = new FX();
     this.handlers = {};
@@ -27,6 +37,19 @@ export class Game {
   }
 
   get diff() { return difficultyOf(this.difficulty); }
+  get endless() { return this.mode === 'endless'; }
+  get mut() { return MUTATORS[this.mutator] || NO_MUT; }
+  // the wave that ends the run with a win (Endless never does)
+  get lastWave() { return this.endless ? Infinity : this.waves.length; }
+  // Endless generates its waves ahead of time (the next-wave preview reads one ahead)
+  ensureWaves(n) {
+    while (this.endless && this.waves.length < n) this.waves.push(endlessWave(this.map.def, this.waves.length + 1));
+  }
+  // Leviathans don't follow the wave HP curve in the campaign; beyond it, Endless scales them
+  bossMult(w) {
+    const L = this.map.def.waves.length;
+    return this.endless && w > L ? waveHpMult(w, this.map.def.hpCurve) / waveHpMult(L, this.map.def.hpCurve) : 1;
+  }
 
   setDifficulty(key) {
     this.difficulty = DIFFICULTIES[key] ? key : 'normal';
@@ -38,16 +61,79 @@ export class Game {
   // (Easy's reductions apply in full from the start — the opening is where new players struggle.)
   diffFactor(key, w = this.wave) {
     if (this.diff[key] <= 1) return this.diff[key];
-    const r = 0.3 + 0.7 * Math.max(0, w - 1) / Math.max(1, this.totalWaves - 1);
+    const r0 = this.diff.ramp0 ?? 0.3;
+    const r = r0 + (1 - r0) * Math.max(0, w - 1) / Math.max(1, this.totalWaves - 1);
     return 1 + (this.diff[key] - 1) * Math.min(1, r);
   }
 
   // Enemies per group after difficulty scaling (a lone boss stays alone)
   scaledCount(type, count, w = this.wave) {
-    return ENEMIES[type].boss ? count : Math.max(1, Math.round(count * this.diffFactor('count', w)));
+    return ENEMIES[type].boss ? count : Math.max(1, Math.round(count * this.diffFactor('count', w) * (this.mut.count || 1)));
   }
 
-  rewardFor(e) { return Math.max(1, Math.round(e.def.reward * this.diff.reward)); }
+  rewardFor(e) { return Math.max(1, Math.round(e.def.reward * this.diff.reward * (this.rule?.reward ?? 1) * this.mods.reward * (this.mut.reward || 1))); }
+
+  // ── Sector rule hooks ──
+  get rule() { return RULES[this.map.def.rule] || null; }
+  get sellRatio() { return Math.max(this.rule?.sell ?? SELL_RATIO, this.mods.sell); }
+  abilityCooldown(id) {
+    const pk = id === 'firewall' ? this.perks.firewallCd : this.perks.purgeCd;
+    return ABILITIES[id].cooldown * (this.rule?.abilityCd ?? 1) * this.mods.abilityCd * (pk || 1);
+  }
+  // upgrade price after cards and research (Rapid Tooling discounts the first upgrade on a tower)
+  costOf(node, t) { return Math.round(node.cost * this.mods.upgradeCost * (t && t.path.length === 0 ? this.perks.l2Cost || 1 : 1)); }
+  // tower stats with the sector rule and the run's upgrade cards applied
+  statsFor(type, path) {
+    const st = { ...towerStats(type, path) }, m = this.mods;
+    if (this.rule?.range) st.range *= this.rule.range;
+    const d = (m.dmg[type] || 1) * m.dmgAll;
+    st.damage *= d;
+    if (st.mineDmg) st.mineDmg *= d;
+    if (st.burn) st.burn *= d;
+    st.range *= (m.range[type] || 1) * m.rangeAll;
+    if (st.kind !== 'aura') st.rate *= 1 + m.rate;
+    if (type === 'arc' && st.chains) st.chains += m.chains;
+    if (type === 'launcher' && st.splash) st.splash *= m.splash;
+    if (st.kind === 'mines') st.maxMines += m.mineMax;
+    if (type === 'cryo' && st.slow) st.slow = Math.min(0.85, st.slow + m.slowBonus);
+    return st;
+  }
+
+  // ── Upgrade cards ──
+  rollCards(n = this.perks.cardCount || 3) {
+    const placed = new Set(this.towers.map((t) => t.type));
+    const pool = CARDS.filter((c) => (!c.tower || placed.has(c.tower)) && !(c.unique && this.picked.includes(c.id)));
+    const out = [];
+    while (out.length < n && pool.length) {
+      const total = pool.reduce((a, c) => a + CARD_ODDS[c.rarity], 0);
+      let r = this.rng() * total, i = 0;
+      while ((r -= CARD_ODDS[pool[i].rarity]) > 0) i++;
+      out.push(pool.splice(i, 1)[0]);
+    }
+    return out;
+  }
+
+  // Cache Decryptor: deal a fresh hand (once per run)
+  reroll() {
+    if (!this.offer || this.rerolls <= 0) return false;
+    this.rerolls--;
+    this.offer = this.rollCards();
+    this.emit('offer', this.offer);
+    return true;
+  }
+
+  choose(i) {
+    const card = this.offer && this.offer[i];
+    if (!card) return false;
+    card.apply?.(this.mods);
+    card.now?.(this);
+    this.picked.push(card.id);
+    this.offer = null;
+    for (const t of this.towers) { t.stats = t.baseStats = this.statsFor(t.type, t.path); t.buffKey = ''; t.busSpots = null; }
+    this.emit('picked', card);
+    this.sfx('pick');
+    return true;
+  }
 
   on(ev, fn) { (this.handlers[ev] ||= []).push(fn); }
   emit(ev, arg) { const h = this.handlers[ev]; if (h) for (const f of h) f(arg); }
@@ -61,12 +147,15 @@ export class Game {
 
   reset() {
     const def = this.map.def;
-    this.waves = def.waves;
-    this.credits = def.startCredits ?? START_CREDITS;
-    this.maxLives = this.diff.lives ?? START_LIVES;
+    this.waves = this.endless ? def.waves.slice() : def.waves;
+    const pk = this.perks, mu = this.mut;
+    this.rng = this.seed != null ? mulberry32(this.seed) : Math.random;
+    this.score = 0;
+    this.credits = (def.startCredits ?? START_CREDITS) + (pk.credits || 0) + (mu.credits || 0);
+    this.maxLives = Math.max(1, Math.round(((this.diff.lives ?? START_LIVES) + (pk.lives || 0)) * (mu.lives || 1)));
     this.lives = this.maxLives;
     this.wave = 0;
-    this.totalWaves = this.waves.length;
+    this.totalWaves = def.waves.length; // campaign length (Endless keeps going past it)
     this.spawnLater = [];
     this.firewalls = [];
     this.cooldowns = { firewall: 0, purge: 0 }; // seconds until each ability is ready
@@ -78,6 +167,7 @@ export class Game {
     this.enemies = [];
     this.projectiles = [];
     this.zones = [];
+    this.mines = [];
     this.spawnQueue = [];
     this.grid = new Map();
     this.nextId = 1;
@@ -85,6 +175,17 @@ export class Game {
     this.leaks = 0;
     this.coreFlash = 0;
     this.boss = null;
+    this.panicT = 0;
+    // run modifiers from upgrade cards
+    this.mods = { dmg: {}, dmgAll: (pk.dmg || 1) * (mu.dmg || 1), range: {}, rangeAll: (pk.range || 1) * (mu.range || 1), rate: 0, chains: 0, splash: 1, mineMax: 0, slowBonus: 0, reward: pk.reward || 1, upgradeCost: 1, abilityCd: 1, firewallDur: 1, purge: 1, sell: pk.sell || 0, interest: 0, armorPierce: 0 };
+    this.rerolls = pk.reroll || 0;
+    // per-run record for medals and achievements
+    this.run = { maxTowers: 0, types: new Set(), maxLevel: 1, abilities: 0, autoStarts: 0, purgeKills: 0, failsafeUsed: false };
+    this.failsafe = !!pk.failsafe;
+    this.picked = [];
+    this.offer = null;
+    const sk = this.rule?.strike;
+    this.strikeT = sk ? rand(sk.every[0], sk.every[1]) : 0;
     this.fx.clear();
   }
 
@@ -94,11 +195,22 @@ export class Game {
   // ── Waves ────────────────────────────────────────────────
   startWave() {
     if (this.state !== 'ready' && this.state !== 'break') return false;
+    if (this.offer) return false; // pick a card first
     if (this.state === 'break') {
-      const bonus = Math.max(0, Math.ceil(this.breakTimer)) * EARLY_BONUS_PER_SEC;
+      const secs = Math.max(0, Math.ceil(this.breakTimer));
+      const bonus = secs * EARLY_BONUS_PER_SEC * (this.mut.early || 1);
       if (bonus > 0) { this.credits += bonus; this.emit('early', bonus); }
+      this.score += secs * SCORE.early;
+    }
+    if (this.mods.interest && this.wave > 0) {
+      const bonus = Math.min(50, Math.floor(this.credits * this.mods.interest));
+      if (bonus > 0) {
+        this.credits += bonus;
+        this.fx.text(this.map.core.x, this.map.core.y - 54, `+${bonus} interest`, '#ffb800', 13);
+      }
     }
     this.wave++;
+    this.ensureWaves(this.wave + 1);
     this.state = 'wave';
     this.waveTime = 0;
     const mult = waveHpMult(this.wave, this.map.def.hpCurve);
@@ -108,9 +220,10 @@ export class Game {
       // more enemies arrive in the same time window → denser waves on higher difficulties
       const n = this.scaledCount(type, count);
       const step = interval * (count / n);
+      const m = ENEMIES[type].boss ? this.bossMult(this.wave) : mult;
       for (let i = 0; i < n; i++) {
         const p = path === 'alt' ? i % nPaths : Math.min(path, nPaths - 1);
-        q.push({ t: delay + i * step, type, mult, path: p });
+        q.push({ t: delay + i * step, type, mult: m, path: p });
       }
     }
     q.sort((a, b) => a.t - b.t);
@@ -123,14 +236,21 @@ export class Game {
   endWave() {
     const bonus = waveClearBonus(this.wave);
     this.credits += bonus;
-    if (this.wave >= this.waves.length) {
+    this.score += SCORE.wave * this.wave;
+    this.ensureWaves(this.wave + 1);
+    if (this.wave >= this.lastWave) {
+      if (this.mode === 'daily') this.score += SCORE.win + SCORE.core * this.lives;
       this.state = 'won';
       this.emit('win');
       this.sfx('win');
       return;
     }
     this.state = 'break';
-    this.breakTimer = BREAK_TIME;
+    this.breakTimer = this.mut.breakTime ?? this.rule?.breakTime ?? BREAK_TIME;
+    if (this.wave % (this.mut.cardEvery || CARD_EVERY) === 0) {
+      this.offer = this.rollCards();
+      if (this.offer.length) this.emit('offer', this.offer); else this.offer = null;
+    }
     this.emit('cleared', { wave: this.wave, bonus });
     this.sfx('clear');
   }
@@ -142,19 +262,21 @@ export class Game {
 
     if (this.state === 'wave') {
       this.waveTime += dt;
+      if (this.rule?.strike) this.updateStrikes(dt);
       while (this.spawnQueue.length && this.spawnQueue[0].t <= this.waveTime) {
         const s = this.spawnQueue.shift();
         this.spawn(s.type, s.mult, s.path);
       }
     } else if (this.state === 'break') {
-      this.breakTimer -= dt;
-      if (this.breakTimer <= 0) this.startWave();
+      if (!this.offer) this.breakTimer -= dt; // the clock waits while a data cache is open
+      if (this.breakTimer <= 0) { this.run.autoStarts++; this.startWave(); }
     }
 
     this.updateEnemies(dt);
     this.updateTowers(dt);
     this.updateProjectiles(dt);
     this.updateZones(dt);
+    this.updateMines(dt);
     this.updateAbilities(dt);
 
     // enemies created mid-tick (worm fragments) join once iteration is done
@@ -175,14 +297,17 @@ export class Game {
   // ── Enemies ──────────────────────────────────────────────
   spawn(type, mult, path = 0, d = 0) {
     const def = ENEMIES[type];
-    const maxHp = def.hp * (def.boss ? 1 : mult) * this.diffFactor('hp');
+    // (a Leviathan's mult is 1 except deep in Endless — see bossMult)
+    const maxHp = def.hp * mult * this.diffFactor('hp') * HP_SCALE * (this.mut.hp || 1);
     const e = {
       id: this.nextId++, type, def, maxHp, hp: maxHp, mult,
       path, d, lane: def.boss ? 0 : rand(-7, 7),
-      radius: def.radius, armor: def.armor, speed: def.speed * rand(0.94, 1.06),
+      radius: def.radius, armor: def.armor + (this.rule?.armor ?? 0) + (this.mut.armor || 0), speed: def.speed * rand(0.94, 1.06) * (this.mut.speed || 1),
       slowAmt: 0, slowT: 0, freezeT: 0, stunT: 0, vulnAmt: 0, vulnT: 0, pullCd: 0,
       flash: 0, dead: false, leaked: false, age: d > 0 ? 0.25 : 0, seed: Math.random() * 100, trailT: 0,
       shieldUp: !!def.shield, shieldT: 0, revealT: 0, healT: def.heal ? def.heal.every * rand(0.3, 1) : 0,
+      thermalT: def.thermal ? def.thermal.every * rand(0.3, 1) : 0, carryT: def.carry ? def.carry.every * rand(0.5, 1) : 0, carried: 0,
+      blinkT: def.blink ? def.blink.every * rand(0.4, 1) : 0, aegised: false,
       x: 0, y: 0, angle: 0,
     };
     const p = this.map.paths[path].posAt(d, e.lane);
@@ -202,6 +327,12 @@ export class Game {
 
   updateEnemies(dt) {
     const fx = this.fx;
+    if (this.panicT > 0) this.panicT -= dt;
+    // Bulwark auras: mark who is protected this tick
+    const shields = this.enemies.filter((o) => o.def.aegis && !o.dead && !o.leaked);
+    for (const e of this.enemies) {
+      e.aegised = shields.some((a) => a !== e && (a.x - e.x) ** 2 + (a.y - e.y) ** 2 <= a.def.aegis.radius ** 2);
+    }
     for (const e of this.enemies) {
       if (e.dead || e.leaked) continue;
       e.age += dt;
@@ -210,6 +341,7 @@ export class Game {
       if (e.vulnT > 0) { e.vulnT -= dt; if (e.vulnT <= 0) e.vulnAmt = 0; }
       if (e.pullCd > 0) e.pullCd -= dt;
       let mult = 1 - e.slowAmt;
+      if (this.panicT > 0) mult *= this.rule.panic.speed;
       if (e.freezeT > 0) { e.freezeT -= dt; mult = 0; }
       if (e.stunT > 0) { e.stunT -= dt; mult = 0; }
       const ease = Math.min(1, e.age / 0.4);
@@ -241,6 +373,50 @@ export class Game {
         }
       }
       if (e.revealT > 0) e.revealT -= dt;
+      // Furnace: immune to chill; heat pulses thaw allies around it
+      if (e.def.thermal) {
+        e.thermalT -= dt;
+        if (e.thermalT <= 0) {
+          const th = e.def.thermal;
+          e.thermalT = th.every;
+          let thawed = 0;
+          for (const o of this.enemies) {
+            if (o.dead || o.leaked || (o.x - e.x) ** 2 + (o.y - e.y) ** 2 > th.radius * th.radius) continue;
+            if (o.slowAmt > 0 || o.freezeT > 0) thawed++;
+            o.slowAmt = 0; o.slowT = 0; o.freezeT = 0;
+          }
+          fx.ring(e.x, e.y, 8, th.radius, 0.45, e.def.color, 2);
+          if (thawed) fx.burst(e.x, e.y, '#ffb347', 10, 120, 2.5, 0.4, 'ember', 1.5);
+        }
+      }
+      // Carrier: drops Glitches behind it as it goes
+      if (e.def.carry && e.carried < e.def.carry.max) {
+        e.carryT -= dt;
+        if (e.carryT <= 0) {
+          const c = e.def.carry;
+          e.carryT = c.every;
+          for (let i = 0; i < c.count && e.carried < c.max; i++, e.carried++) {
+            this.spawnLater.push({ type: c.type, mult: e.mult * c.hp, path: e.path, d: Math.max(1, e.d - 6 - i * 10) });
+          }
+          fx.ring(e.x, e.y, e.radius, e.radius + 14, 0.3, e.def.color, 2);
+        }
+      }
+      // Blinker: jumps ahead along the bus (not while a Firewall is up)
+      if (e.def.blink) {
+        e.blinkT -= dt;
+        if (e.blinkT <= 0) {
+          e.blinkT = e.def.blink.every * rand(0.85, 1.15);
+          if (!this.firewalls.length && e.freezeT <= 0 && e.stunT <= 0) {
+            const from = { x: e.x, y: e.y };
+            e.d = Math.min(path.length - 24, e.d + e.def.blink.dist);
+            const q = path.posAt(e.d, e.lane);
+            e.x = q.x; e.y = q.y;
+            fx.ring(from.x, from.y, e.radius + 8, 2, 0.25, e.def.color, 2);
+            fx.ring(e.x, e.y, 2, e.radius + 12, 0.3, e.def.color, 2);
+            fx.beam(from.x, from.y, e.x, e.y, e.def.color, 3, 0.15);
+          }
+        }
+      }
       // Patcher: periodic heal pulse on nearby malware (capped per target, so bosses heal slowly)
       if (e.def.heal) {
         e.healT -= dt;
@@ -283,10 +459,103 @@ export class Game {
     }
   }
 
+  // ── Logic Mines ──
+  // Spots on the bus inside the tower's range, sampled once per tower/upgrade.
+  busSpotsFor(t) {
+    if (t.busSpots) return t.busSpots;
+    const out = [], R = t.stats.range;
+    for (const p of this.map.paths) {
+      for (let d = 20; d < p.length - 30; d += 12) {
+        const q = p.posAt(d);
+        if ((q.x - t.x) ** 2 + (q.y - t.y) ** 2 <= R * R) out.push(q);
+      }
+    }
+    return (t.busSpots = out);
+  }
+
+  tickMineLayer(t, dt) {
+    const s = t.stats;
+    const mine = this.mines.filter((m) => m.src === t);
+    if (mine.length >= s.maxMines) return;
+    if ((t.layT -= dt) > 0) return;
+    t.layT = 1 / s.rate;
+    const spots = this.busSpotsFor(t);
+    if (!spots.length) return;
+    // prefer spots away from mines already down
+    let spot = null;
+    for (let i = 0; i < 8 && !spot; i++) {
+      const q = spots[Math.floor(Math.random() * spots.length)];
+      if (this.mines.every((m) => (m.x - q.x) ** 2 + (m.y - q.y) ** 2 > 26 * 26)) spot = q;
+    }
+    if (!spot) return;
+    this.mines.push({
+      x: spot.x + rand(-5, 5), y: spot.y + rand(-5, 5), fromX: t.x, fromY: t.y, armT: 0.45, age: 0, src: t,
+      dmg: s.mineDmg, radius: s.mineRadius, stun: s.mineStun, slow: s.mineSlow, chain: s.chain, burn: s.mineBurn, strip: s.strip, color: s.color,
+      big: s.maxMines <= 2,
+    });
+    t.recoil = 1;
+    this.sfx('mineLay', t.x);
+  }
+
+  updateMines(dt) {
+    if (!this.mines.length) return;
+    for (const m of this.mines) {
+      m.age += dt;
+      if (m.armT > 0) { m.armT -= dt; continue; }
+      if (m.gone) continue;
+      for (const e of this.enemies) {
+        if (e.dead || e.leaked) continue;
+        if ((e.x - m.x) ** 2 + (e.y - m.y) ** 2 <= (14 + e.radius) ** 2) { this.detonate(m); break; }
+      }
+    }
+    this.mines = this.mines.filter((m) => !m.gone && this.towers.includes(m.src));
+  }
+
+  detonate(m) {
+    if (m.gone) return;
+    m.gone = true;
+    for (const e of this.enemies) {
+      if (e.dead || e.leaked || (e.x - m.x) ** 2 + (e.y - m.y) ** 2 > (m.radius + e.radius * 0.5) ** 2) continue;
+      if (m.strip && e.def.shield && e.shieldUp) { e.shieldUp = false; e.shieldT = e.def.shield; }
+      if (m.stun) e.stunT = Math.max(e.stunT, m.stun * (e.def.ccResist ?? 1));
+    }
+    this.explodeAt(m.x, m.y, m.dmg, m.radius, m.src, m.color, m.big || m.radius > 70, !m.big && m.radius < 50);
+    if (m.slow) this.zones.push({ x: m.x, y: m.y, r: m.radius * 0.9, dps: 0, slow: m.slow, t: 3, max: 3, tick: 0, color: '#8d7bff', src: m.src });
+    if (m.burn) this.zones.push({ x: m.x, y: m.y, r: m.radius * 0.8, dps: m.burn, t: 3, max: 3, tick: 0, color: m.color, src: m.src });
+    if (m.chain) {
+      for (const o of this.mines) {
+        if (o === m || o.gone || o.armT > 0 || (o.x - m.x) ** 2 + (o.y - m.y) ** 2 > 90 * 90) continue;
+        this.fx.after(0.12, () => this.detonate(o));
+      }
+    }
+  }
+
+  // Lightning rule: a bolt lands on the malware, damaging and stunning everything around it
+  updateStrikes(dt) {
+    const sk = this.rule.strike;
+    if ((this.strikeT -= dt) > 0) return;
+    const pool = this.enemies.filter((e) => !e.dead && !e.leaked && e.age > 0.5);
+    if (!pool.length) { this.strikeT = 0.5; return; }
+    this.strikeT = rand(sk.every[0], sk.every[1]);
+    const t = pool[Math.floor(Math.random() * pool.length)];
+    const x = t.x, y = t.y, dmg = sk.dmg * waveHpMult(this.wave, this.map.def.hpCurve);
+    for (const e of pool) {
+      if ((e.x - x) ** 2 + (e.y - y) ** 2 > sk.radius * sk.radius) continue;
+      e.stunT = Math.max(e.stunT, sk.stun * (e.def.ccResist ?? 1));
+      this.hurt(e, dmg, null, true);
+    }
+    this.fx.ring(x, y, 6, sk.radius, 0.4, '#c9b8ff', 4);
+    this.fx.burst(x, y, '#e6e0ff', 24, 260, 3, 0.4, 'spark', 3);
+    this.fx.flash('200,190,255', 0.18);
+    this.fx.shake(5);
+    this.emit('strike', { x, y });
+  }
+
   leak(e) {
     e.leaked = true;
     this.lives = Math.max(0, this.lives - e.def.leak);
     this.leaks++;
+    if (this.rule?.panic) { this.panicT = this.rule.panic.time; this.emit('panic'); }
     this.coreFlash = 1;
     const C = this.map.core;
     this.fx.shake(e.def.boss ? 20 : 7);
@@ -295,7 +564,19 @@ export class Game {
     this.fx.burst(C.x, C.y, '#ff2a6d', 24, 220, 4, 0.6);
     this.sfx('hurt', C.x);
     this.emit('leak', e);
-    if (e === this.boss) this.boss = null;
+    if (e === this.boss) this.boss = this.enemies.find((o) => o !== e && o.def.boss && !o.dead && !o.leaked) || null;
+    // Failsafe research: the first fatal breach leaves the Core at 1 and stuns the board
+    if (this.lives <= 0 && this.failsafe) {
+      this.failsafe = false;
+      this.run.failsafeUsed = true;
+      this.lives = 1;
+      for (const o of this.enemies) if (!o.dead && !o.leaked) o.stunT = Math.max(o.stunT, 2 * (o.def.ccResist ?? 1));
+      const C = this.map.core;
+      this.fx.ring(C.x, C.y, 10, 900, 1, '#00e5ff', 6);
+      this.fx.flash('120,240,255', 0.5);
+      this.emit('failsafe');
+      this.sfx('purge', C.x);
+    }
     if (this.lives <= 0 && this.state !== 'lost') {
       this.state = 'lost';
       this.fx.after(0, () => this.coreExplosion());
@@ -320,7 +601,7 @@ export class Game {
   // bypassShield: damage-over-time (burn zones) ignores Cipher shields
   hurt(e, amount, src, pierce = false, bypassShield = false) {
     if (e.dead || e.leaked) return 0;
-    if (e.def.stealth) e.revealT = Math.max(e.revealT, 0.6); // any hit briefly exposes a Rootkit
+    if (e.def.stealth) e.revealT = Math.max(e.revealT, 0.6 * (this.rule?.reveal ?? 1)); // any hit briefly exposes a Rootkit
     if (e.shieldUp && !bypassShield) {
       e.shieldUp = false;
       e.shieldT = e.def.shield;
@@ -331,7 +612,10 @@ export class Game {
       return 0;
     }
     let dmg = amount * (1 + e.vulnAmt);
-    if (!pierce && e.armor > 0) dmg = Math.max(dmg - e.armor, dmg * 0.2);
+    if (pierce && this.rule?.pierceBonus) dmg *= this.rule.pierceBonus;
+    const armor = e.armor - this.mods.armorPierce;
+    if (!pierce && armor > 0) dmg = Math.max(dmg - armor, dmg * 0.2);
+    if (e.aegised) dmg *= 1 - 0.4; // a Bulwark nearby soaks part of every hit
     e.hp -= dmg;
     e.flash = 0.07;
     if (src) src.dealt += dmg;
@@ -345,6 +629,7 @@ export class Game {
   kill(e) {
     e.dead = true;
     this.kills++;
+    this.score += e.def.reward * SCORE.kill;
     const reward = this.rewardFor(e);
     this.credits += reward;
     const fx = this.fx, col = e.def.color;
@@ -398,7 +683,7 @@ export class Game {
         fx.burst(x, y, '#ffb347', 40, 160, 3, 2.2, 'ember', 0.9);
         this.sfx('bigboom', x);
       });
-      if (e === this.boss) this.boss = null;
+      if (e === this.boss) this.boss = this.enemies.find((o) => o !== e && o.def.boss && !o.dead && !o.leaked) || null;
       this.emit('bossDown', e);
     }
   }
@@ -441,8 +726,10 @@ export class Game {
     const spot = this.snapToBus(x, y);
     if (!spot) return false;
     const def = ABILITIES.firewall;
-    this.firewalls.push({ ...spot, t: def.duration, max: def.duration, bossT: def.bossHold, dps: def.dps });
-    this.cooldowns.firewall = def.cooldown;
+    const dur = (def.duration + (this.perks.firewallPlus || 0)) * this.mods.firewallDur;
+    this.firewalls.push({ ...spot, t: dur, max: dur, bossT: def.bossHold * this.mods.firewallDur, dps: def.dps });
+    this.cooldowns.firewall = this.abilityCooldown('firewall');
+    this.run.abilities++;
     this.fx.ring(spot.x, spot.y, 4, 40, 0.4, def.color, 3);
     this.fx.burst(spot.x, spot.y, def.color, 24, 200, 3, 0.5);
     this.fx.shake(2);
@@ -482,6 +769,8 @@ export class Game {
   usePurge() {
     if (!this.abilityReady('purge') || !this.enemies.length) return false;
     const def = ABILITIES.purge, C = this.map.core, fx = this.fx;
+    const kills0 = this.kills;
+    this.run.abilities++;
     let i = 0;
     for (const e of this.enemies) {
       if (e.dead || e.leaked) continue;
@@ -490,9 +779,11 @@ export class Game {
       e.stunT = Math.max(e.stunT, def.stun * (e.def.ccResist ?? 1));
       if (i++ < 18) fx.lightning([{ x: C.x, y: C.y }, { x: e.x, y: e.y }], def.color, 1.6, 0.35);
       fx.burst(e.x, e.y, def.color, 6, 120, 2, 0.35, 'spark', 4);
-      this.hurt(e, e.maxHp * (e.def.boss ? def.bossPct : def.pct), null, true, true);
+      this.hurt(e, e.maxHp * (e.def.boss ? def.bossPct : def.pct) * this.mods.purge, null, true, true);
     }
-    this.cooldowns.purge = def.cooldown;
+    this.cooldowns.purge = this.abilityCooldown('purge');
+    this.run.purgeKills = Math.max(this.run.purgeKills, this.kills - kills0);
+    this.emit('purged', this.kills - kills0);
     fx.ring(C.x, C.y, 20, 1500, 1.1, def.color, 6);
     fx.ring(C.x, C.y, 20, 900, 0.8, '#ffffff', 3);
     fx.flash('255,190,60', 0.35);
@@ -514,12 +805,15 @@ export class Game {
     this.credits -= def.cost;
     const t = {
       id: this.nextId++, type, def, c, r, x: c * TILE + TILE / 2, y: r * TILE + TILE / 2,
-      path: [], level: 1, stats: towerStats(type, []),
+      path: [], level: 1, stats: this.statsFor(type, []), baseStats: null, buffKey: '', layT: 0.6, mineT: 0, busSpots: null,
       cooldown: 0.25, angle: -Math.PI / 2, target: null, recoil: 0, barrel: 0, spin: 0,
       spawnT: 0, invested: def.cost, dealt: 0, kills: 0, upgradeFlash: 0,
       targeting: 'first', heat: 0,
     };
+    t.baseStats = t.stats;
     this.towers.push(t);
+    this.run.types.add(type);
+    this.run.maxTowers = Math.max(this.run.maxTowers, this.towers.length);
     this.grid.set(c + ',' + r, t);
     this.fx.ring(t.x, t.y, 4, 34, 0.45, def.color, 3);
     this.fx.burst(t.x, t.y, def.color, 18, 140, 3, 0.5);
@@ -529,12 +823,16 @@ export class Game {
 
   upgrade(t, idx) {
     const node = upgradeOptions(t.type, t.path)[idx];
-    if (!node || this.credits < node.cost) return false;
-    this.credits -= node.cost;
-    t.invested += node.cost;
+    const cost = node && this.costOf(node, t);
+    if (!node || this.credits < cost) return false;
+    this.credits -= cost;
+    t.invested += cost;
     t.path.push(idx);
     t.level = 1 + t.path.length;
-    t.stats = towerStats(t.type, t.path);
+    this.run.maxLevel = Math.max(this.run.maxLevel, t.level);
+    if (t.level === 3) this.emit('evolved', t);
+    t.stats = t.baseStats = this.statsFor(t.type, t.path);
+    t.buffKey = ''; t.busSpots = null;
     t.upgradeFlash = 1;
     const fx = this.fx, col = t.stats.color;
     fx.beam(t.x, t.y + 4, t.x, t.y - 140, col, 16, 0.55);
@@ -550,7 +848,7 @@ export class Game {
   }
 
   sell(t) {
-    const refund = Math.floor(t.invested * SELL_RATIO);
+    const refund = Math.floor(t.invested * this.sellRatio);
     this.credits += refund;
     this.towers = this.towers.filter((o) => o !== t);
     this.grid.delete(t.c + ',' + t.r);
@@ -630,8 +928,59 @@ export class Game {
     return best;
   }
 
-  updateTowers(dt) {
+  // Overclock Hubs: each tower takes the best boost per stat from any hub covering it (no stacking)
+  applyHubs(dt) {
+    const hubs = this.towers.filter((t) => t.stats.kind === 'aura' && t.spawnT >= 1);
     for (const t of this.towers) {
+      if (t.stats.kind === 'aura') continue;
+      let rate = 0, dmg = 0, range = 0, pierce = false;
+      for (const h of hubs) {
+        const hs = h.stats;
+        if ((h.x - t.x) ** 2 + (h.y - t.y) ** 2 > hs.range * hs.range) continue;
+        rate = Math.max(rate, hs.buffRate); dmg = Math.max(dmg, hs.buffDmg); range = Math.max(range, hs.buffRange); pierce = pierce || hs.buffPierce;
+      }
+      const key = `${rate}|${dmg}|${range}|${pierce}`;
+      if (key === t.buffKey) continue;
+      t.buffKey = key;
+      const st = { ...t.baseStats };
+      if (rate || dmg || range || pierce) {
+        st.rate *= 1 + rate; st.damage *= 1 + dmg; st.range *= 1 + range;
+        if (st.mineDmg) st.mineDmg *= 1 + dmg;
+        if (st.burn) st.burn *= 1 + dmg;
+        if (pierce) st.pierceArmor = true;
+        st.buffed = true;
+      }
+      t.stats = st;
+    }
+    for (const h of hubs) {
+      const hs = h.stats;
+      // field effects on malware inside the hub's radius
+      if (hs.revealField || hs.field) {
+        for (const e of this.enemies) {
+          if (e.dead || e.leaked || (e.x - h.x) ** 2 + (e.y - h.y) ** 2 > hs.range * hs.range) continue;
+          if (hs.revealField && e.def.stealth) e.revealT = Math.max(e.revealT, 0.3);
+          if (hs.field) this.applyStatus(e, { slow: hs.slow, slowTime: 0.35, vuln: hs.vuln });
+        }
+      }
+      if (hs.mine && this.state === 'wave') {
+        h.mineT += dt;
+        if (h.mineT >= 4) {
+          h.mineT -= 4;
+          this.credits += hs.mine;
+          this.fx.text(h.x, h.y - 24, '+' + hs.mine, '#ffe066', 11);
+          this.emit('reward', { x: h.x, y: h.y, amount: hs.mine });
+        }
+      }
+    }
+  }
+
+  updateTowers(dt) {
+    this.applyHubs(dt);
+    const jammers = this.enemies.filter((e) => e.def.jam && !e.dead && !e.leaked);
+    for (const t of this.towers) {
+      // Jammers nearby slow this tower's reload
+      const jam = jammers.find((j) => (j.x - t.x) ** 2 + (j.y - t.y) ** 2 <= j.def.jam.radius ** 2);
+      t.jammed = !!jam;
       const s = t.stats;
       t.spawnT = Math.min(1, t.spawnT + dt * 3);
       t.recoil = Math.max(0, t.recoil - dt * 6);
@@ -639,14 +988,16 @@ export class Game {
       // Gatling heat: spins up over ~2.5s of continuous fire, cools in ~1.2s
       if (s.spinUp) t.heat = t.target ? Math.min(1, t.heat + dt / 2.5) : Math.max(0, t.heat - dt / 1.2);
       if (s.gatling) t.spin += dt * (t.target ? 18 + 22 * t.heat : 3);
-      t.cooldown -= dt;
+      t.cooldown -= dt * (jam ? jam.def.jam.factor : 1);
+      if (s.kind === 'aura') { t.target = null; continue; } // support only
+      if (s.kind === 'mines') { this.tickMineLayer(t, dt * (jam ? jam.def.jam.factor : 1)); continue; }
 
       // area towers (ICE pulse, EMP) trigger on anything in range, cloaked or not
       const target = s.kind === 'pulse' || s.kind === 'nova'
         ? this.allInRange(t.x, t.y, s.range)[0] || null
         : this.findTarget(t.x, t.y, s.range, t.targeting);
       t.target = target;
-      if (target && (s.kind === 'bolt' || s.kind === 'rail' || s.kind === 'missile')) {
+      if (target && (s.kind === 'bolt' || s.kind === 'rail' || s.kind === 'missile' || s.kind === 'lance')) {
         t.angle = turnTowards(t.angle, Math.atan2(target.y - t.y, target.x - t.x), dt * 12);
       }
       if (t.cooldown <= 0) {
@@ -691,16 +1042,17 @@ export class Game {
   applyStatus(e, s) {
     if (e.dead) return;
     const resist = e.def.ccResist ?? 1;
-    if (s.slow) {
+    const chill = this.rule?.chill ?? 1, immune = !!e.def.thermal;
+    if (s.slow && !immune) {
       e.slowAmt = Math.max(e.slowAmt, s.slow * (e.def.boss ? 0.6 : 1));
-      e.slowT = Math.max(e.slowT, s.slowTime);
+      e.slowT = Math.max(e.slowT, s.slowTime * chill);
     }
     if (s.stunChance && Math.random() < s.stunChance) {
       e.stunT = Math.max(e.stunT, s.stunTime * resist);
       this.fx.burst(e.x, e.y, '#fff27a', 6, 90, 2, 0.3, 'spark', 4);
     }
-    if (s.freezeChance && e.freezeT <= 0 && Math.random() < s.freezeChance) {
-      e.freezeT = s.freezeTime * resist;
+    if (s.freezeChance && !immune && e.freezeT <= 0 && Math.random() < s.freezeChance) {
+      e.freezeT = s.freezeTime * resist * chill;
       this.fx.burst(e.x, e.y, '#eaf8ff', 10, 110, 2.5, 0.4);
     }
     if (s.vuln) {
@@ -716,6 +1068,45 @@ export class Game {
   fire(t, target) {
     const s = t.stats, fx = this.fx;
     switch (s.kind) {
+      case 'lance': {
+        t.angle = Math.atan2(target.y - t.y, target.x - t.x);
+        const mx = t.x + Math.cos(t.angle) * 26, my = t.y + Math.sin(t.angle) * 26;
+        const hit = new Set();
+        let from = { x: mx, y: my }, tg = target, dmg = s.damage;
+        for (let n = 0; tg && n <= s.bounces; n++) {
+          hit.add(tg);
+          fx.beam(from.x, from.y, tg.x, tg.y, s.color, n ? 3 : 5, 0.22);
+          fx.beam(from.x, from.y, tg.x, tg.y, '#ffffff', n ? 1 : 1.6, 0.16);
+          fx.add({ kind: 'glow', x: tg.x, y: tg.y, vx: 0, vy: 0, life: 0.12, size: 16, color: s.color });
+          fx.burst(tg.x, tg.y, s.color, 6, 160, 2, 0.25, 'spark', 4);
+          if (s.strip) {
+            if (tg.def.shield && tg.shieldUp) { tg.shieldUp = false; tg.shieldT = tg.def.shield; }
+            if (tg.def.stealth) tg.revealT = Math.max(tg.revealT, 2);
+          }
+          if (s.vulnMark) { tg.vulnAmt = Math.max(tg.vulnAmt, s.vulnMark); tg.vulnT = Math.max(tg.vulnT, 3); }
+          const d = s.execute && tg.def.boss ? dmg * 1.5 : dmg;
+          this.hurt(tg, d, t, s.pierceArmor);
+          if (!tg.dead && s.execute && !tg.def.boss && tg.hp / tg.maxHp <= s.execute) {
+            fx.text(tg.x, tg.y - tg.radius - 10, 'EXECUTE', s.color, 11);
+            this.hurt(tg, tg.hp + 1, t, true, true);
+          }
+          if (s.stunChance) this.applyStatus(tg, s);
+          // ricochet to the nearest visible malware not hit yet
+          from = { x: tg.x, y: tg.y };
+          dmg *= s.bounceFalloff;
+          let best = null, bd = 140 * 140;
+          for (const o of this.enemies) {
+            if (o.dead || o.leaked || hit.has(o) || !this.visible(o)) continue;
+            const dd = (o.x - from.x) ** 2 + (o.y - from.y) ** 2;
+            if (dd < bd) { bd = dd; best = o; }
+          }
+          tg = best;
+        }
+        fx.add({ kind: 'glow', x: mx, y: my, vx: 0, vy: 0, life: 0.1, size: 18, color: s.color });
+        t.recoil = 1;
+        this.sfx('lance', t.x);
+        break;
+      }
       case 'bolt': {
         let targets = [target];
         if (s.targets > 1) targets = this.pickTargets(t, s.targets);
@@ -952,6 +1343,8 @@ export class Game {
       }
     }
     if (p.burn) {
+      const own = this.zones.filter((z) => z.src === p.src && z.dps === p.burn);
+      if (own.length >= 3) this.zones.splice(this.zones.indexOf(own[0]), 1);
       this.zones.push({ x: p.x, y: p.y, r: p.burnRadius, dps: p.burn, t: 3, max: 3, tick: 0, color: p.color, src: p.src });
     }
   }
@@ -995,7 +1388,9 @@ export class Game {
         z.tick += 0.25;
         for (const e of this.enemies) {
           if (e.dead) continue;
-          if ((e.x - z.x) ** 2 + (e.y - z.y) ** 2 <= (z.r + e.radius * 0.5) ** 2) this.hurt(e, z.dps * 0.25, z.src, true, true);
+          if ((e.x - z.x) ** 2 + (e.y - z.y) ** 2 > (z.r + e.radius * 0.5) ** 2) continue;
+          if (z.dps) this.hurt(e, z.dps * 0.25, z.src, true, true);
+          if (z.slow) this.applyStatus(e, { slow: z.slow, slowTime: 0.4 });
         }
       }
       if (Math.random() < 0.7) {

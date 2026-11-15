@@ -2,8 +2,8 @@
 import { WORLD_W } from './config.js';
 
 // how much of each sound goes to the shared reverb
-const SEND = { boom: 0.22, bigboom: 0.5, upgrade: 0.35, purge: 0.5, boss: 0.6, siren: 0.45, win: 0.4, lose: 0.5, power: 0.3, wave: 0.3, hurt: 0.3, firewall: 0.25, gravity: 0.3, clear: 0.3 };
-const GAPS = { hover: 40, coin: 45, hail: 40, shield: 60, heal: 250, shoot: 45, thump: 60, zap: 55, frost: 80, gravity: 120, pop: 35, pop2: 50, boom: 70, bigboom: 150, launch: 70, rail: 60, emp: 90 };
+const SEND = { thunder: 0.7, boom: 0.22, bigboom: 0.5, upgrade: 0.35, purge: 0.5, boss: 0.6, siren: 0.45, win: 0.4, lose: 0.5, power: 0.3, wave: 0.3, hurt: 0.3, firewall: 0.25, gravity: 0.3, clear: 0.3 };
+const GAPS = { achieve: 400, deal: 300, pick: 200, lance: 60, mineLay: 80, thunder: 1500, hover: 40, coin: 45, hail: 40, shield: 60, heal: 250, shoot: 45, thump: 60, zap: 55, frost: 80, gravity: 120, pop: 35, pop2: 50, boom: 70, bigboom: 150, launch: 70, rail: 60, emp: 90 };
 
 export class Sfx {
   constructor() {
@@ -216,6 +216,35 @@ export class Sfx {
       case 'siren': // two-tone alarm for the boss entrance
         for (let i = 0; i < 4; i++) this.tone({ type: 'triangle', f0: i % 2 ? 880 : 620, dur: 0.24, gain: 0.07, delay: i * 0.26, attack: 0.02 });
         this.tone({ type: 'sawtooth', f0: 41, dur: 1.1, gain: 0.08, attack: 0.1 });
+        break;
+      case 'achieve': // short triumphant fanfare
+        [523, 659, 784].forEach((f, i) => this.tone({ type: 'triangle', f0: f, dur: 0.16, gain: 0.06, delay: i * 0.07 }));
+        this.tone({ type: 'triangle', f0: 1047, dur: 0.5, gain: 0.07, delay: 0.21 });
+        this.noise({ dur: 0.5, gain: 0.04, filter: 'highpass', f0: 6000, delay: 0.2 });
+        break;
+      case 'deal': // three cards flicking onto the table
+        for (let i = 0; i < 3; i++) {
+          this.noise({ dur: 0.08, gain: 0.05, filter: 'bandpass', f0: 2600, f1: 900, q: 1.2, delay: i * 0.12 });
+          this.tone({ type: 'triangle', f0: 660 + i * 220, dur: 0.12, gain: 0.03, delay: i * 0.12 + 0.03 });
+        }
+        break;
+      case 'pick':
+        [784, 988, 1319, 1568].forEach((f, i) => this.tone({ type: 'triangle', f0: f, dur: 0.22, gain: 0.05, delay: i * 0.05 }));
+        this.noise({ dur: 0.4, gain: 0.04, filter: 'highpass', f0: 5000, delay: 0.05 });
+        break;
+      case 'lance': // supersonic crack with a falling whine
+        this.noise({ dur: 0.07, gain: 0.09, filter: 'highpass', f0: 4200 });
+        this.tone({ type: 'sawtooth', f0: 3400, f1: 380, dur: 0.16, gain: 0.04 });
+        this.tone({ type: 'sine', f0: 180, f1: 70, dur: 0.12, gain: 0.08 });
+        break;
+      case 'mineLay':
+        this.tone({ type: 'triangle', f0: 900, f1: 1400, dur: 0.06, gain: 0.03 });
+        this.tone({ type: 'square', f0: 2200, dur: 0.02, gain: 0.012, delay: 0.42 });
+        break;
+      case 'thunder': // distant roll, then the crack's tail
+        this.noise({ dur: 2.4, gain: 0.3, filter: 'lowpass', f0: 520, f1: 50 });
+        this.tone({ type: 'sine', f0: 52, f1: 24, dur: 2, gain: 0.26, attack: 0.08 });
+        this.noise({ dur: 0.5, gain: 0.08, filter: 'bandpass', f0: 1400, f1: 300, q: 0.8, delay: 0.05 });
         break;
       case 'tick': // final-wave countdown
         this.tone({ type: 'square', f0: 1250, dur: 0.05, gain: 0.04 });

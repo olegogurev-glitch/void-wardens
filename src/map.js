@@ -57,7 +57,7 @@ export class GameMap {
     this.block(last[0] + 2, last[1]);
   }
 
-  block(c, r) { this.blocked.add(c + r * COLS); }
+  block(c, r) { if (c >= 0 && r >= 0 && c < COLS && r < ROWS) this.blocked.add(c + r * COLS); }
 
   isBuildable(c, r) {
     return c >= 0 && r >= 0 && c < COLS && r < ROWS && !this.blocked.has(c + r * COLS);

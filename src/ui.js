@@ -1,5 +1,5 @@
 // DOM HUD: top stats, tower dock, tower panel with upgrade choices, banners, overlays.
-import { TOWERS, TOWER_ORDER, ENEMIES, START_LIVES, SELL_RATIO, WORLD_W, COLS, ROWS, ABILITIES, ABILITY_ORDER, DIFFICULTIES, DIFFICULTY_ORDER, towerStats, upgradeOptions, pathNames, waveHpMult } from './config.js';
+import { RESEARCH, CARDS, RULES, TOWERS, TOWER_ORDER, ENEMIES, START_LIVES, SELL_RATIO, WORLD_W, COLS, ROWS, ABILITIES, ABILITY_ORDER, DIFFICULTIES, DIFFICULTY_ORDER, towerStats, upgradeOptions, pathNames, waveHpMult } from './config.js';
 import { drawTower, motion } from './render.js';
 import { TARGET_MODES } from './game.js';
 
@@ -21,6 +21,13 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const CR = '<i class="cr"></i>';
 
 export function statRows(s) {
+  if (s.kind === 'aura') {
+    const rows = [['FIELD', fmt(s.range)]];
+    if (s.buffRate) rows.push(['RATE', `+${Math.round(s.buffRate * 100)}%`]);
+    if (s.buffDmg) rows.push(['DMG', `+${Math.round(s.buffDmg * 100)}%`]);
+    return rows;
+  }
+  if (s.kind === 'mines') return [['DMG', fmt(s.mineDmg)], ['MINES', `${s.maxMines} · ${s.rate.toFixed(2)}/s`], ['RANGE', fmt(s.range)]];
   const mult = s.kind === 'missile' && s.missiles > 1 ? ` ×${s.missiles}` : s.targets > 1 ? ` ×${s.targets}` : '';
   return [
     ['DMG', fmt(s.damage) + mult],
@@ -32,6 +39,21 @@ export function statRows(s) {
 export function statTags(s) {
   const t = [];
   if (s.kind === 'rail') t.push('Piercing beam');
+  if (s.kind === 'lance') t.push('Instant hit');
+  if (s.bounces) t.push(`Ricochet ×${s.bounces}`);
+  if (s.execute) t.push(`Executes <${Math.round(s.execute * 100)}% HP`);
+  if (s.vulnMark) t.push(`Marks +${Math.round(s.vulnMark * 100)}% dmg`);
+  if (s.strip) t.push('Pops shields');
+  if (s.kind === 'aura') t.push('Buffs towers in field');
+  if (s.buffRange) t.push(`+${Math.round(s.buffRange * 100)}% range to field`);
+  if (s.buffPierce) t.push('Field ignores armor');
+  if (s.revealField) t.push('Exposes cloaked');
+  if (s.mine) t.push(`+${s.mine} credits / 4s`);
+  if (s.kind === 'mines') t.push(`Blast ${fmt(s.mineRadius)}`);
+  if (s.mineStun) t.push(`Stun ${s.mineStun}s`);
+  if (s.mineSlow) t.push(`Tar ${Math.round(s.mineSlow * 100)}% slow`);
+  if (s.chain) t.push('Chain reaction');
+  if (s.mineBurn) t.push(`Burn ${s.mineBurn}/s`);
   if (s.kind === 'chain') t.push(`Chains ×${s.chains}`);
   if (s.kind === 'nova') t.push('Hits all in range');
   if (s.kind === 'pulse') t.push(s.singularity ? 'Rollback pulse' : 'Area pulse');
@@ -59,12 +81,37 @@ function diffLine(a, b) {
   return out.join('');
 }
 
+// Small line icons for the upgrade cards (inline SVG, currentColor)
+const ICON = {
+  clock: '<circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/>',
+  chip: '<rect x="7" y="7" width="10" height="10"/><path d="M9 4v3M12 4v3M15 4v3M9 17v3M12 17v3M15 17v3M4 9h3M4 12h3M4 15h3M17 9h3M17 12h3M17 15h3"/>',
+  target: '<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>',
+  coin: '<path d="M12 3l8 9-8 9-8-9z"/><path d="M12 8l3.5 4L12 16l-3.5-4z"/>',
+  core: '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/>',
+  cycle: '<path d="M19 12a7 7 0 1 1-2-4.9"/><path d="M19 4v4h-4"/>',
+  wall: '<path d="M4 6h16v12H4zM4 12h16M10 6v6M14 12v6"/>',
+  bolt: '<path d="M13 2L5 13h6l-1 9 8-11h-6z"/>',
+  skull: '<path d="M6 10a6 6 0 1 1 12 0v4h-3v3H9v-3H6z"/><circle cx="9.5" cy="10.5" r="1.4"/><circle cx="14.5" cy="10.5" r="1.4"/>',
+  tower: '<path d="M6 20h12M8 20V9h8v11M12 9V4M9 4h6"/>',
+};
+const CARD_ICON = { overclock: 'clock', zeroday: 'skull', precision: 'target', bounty: 'coin', firmware: 'chip', interest: 'coin', salvage: 'coin', cache: 'coin', patch: 'core', recharge: 'cycle', bastion: 'wall', deeppurge: 'bolt' };
+// achievement icons reuse the card line icons
+const ACH_ICON = { core: 'patch', skull: 'zeroday', target: 'precision', coin: 'bounty', cycle: 'recharge', bolt: 'deeppurge', wall: 'bastion', chip: 'firmware' };
+const achIcon = (icon) => (icon === 'tower' ? cardIcon(null, true) : cardIcon(ACH_ICON[icon] || 'firmware'));
+
+export function cardIcon(id, tower) {
+  const k = CARD_ICON[id] || (tower ? 'tower' : 'chip');
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round">${ICON[k]}</svg>`;
+}
+
 export function describeWave(game, w) {
   const counts = {};
   for (const [type, n] of game.waves[w - 1]) counts[type] = (counts[type] || 0) + game.scaledCount(type, n, w);
+  const seen = new Set(game.waves.slice(0, w - 1).flat().map((g) => g[0]));
   return Object.entries(counts).map(([type, n]) => {
     const d = ENEMIES[type];
-    return d.boss ? d.name : `${n} ${n > 1 ? d.plural : d.name}`;
+    const label = d.boss ? d.name : `${n} ${n > 1 ? d.plural : d.name}`;
+    return !seen.has(type) && w > 1 && !d.boss ? `NEW: ${label} (${d.trait})` : label;
   }).join(' · ');
 }
 
@@ -74,7 +121,7 @@ export class UI {
     this.view = view;
     this.ctl = ctl;
     this.els = {
-      credits: $('credits'), creditsStat: $('stat-credits'), waveNum: $('wave-num'), waveTotal: $('wave-total'),
+      credits: $('credits'), creditsStat: $('stat-credits'), waveNum: $('wave-num'), waveTotal: $('wave-total'), score: $('score'), scoreStat: $('stat-score'),
       lives: $('lives'), livesBar: $('lives-bar'), livesStat: $('stat-lives'),
       dock: $('dock'), panel: $('panel'), banner: $('banner'), cta: $('wave-cta'), overlay: $('overlay'),
       tooltip: $('tooltip'), speed: $('btn-speed'), pause: $('btn-pause'), mute: $('btn-mute'), music: $('btn-music'), viewport: $('viewport'),
@@ -148,7 +195,7 @@ export class UI {
     const g = this.game, v = this.view;
     for (const id of ABILITY_ORDER) {
       const btn = this.abilityBtns[id];
-      const left = g.cooldowns[id], cd = ABILITIES[id].cooldown;
+      const left = g.cooldowns[id], cd = g.abilityCooldown(id);
       const key = `${Math.ceil(left)}|${v.ability === id}|${v.started && !g.over}`;
       if (btn._key === key) continue;
       btn._key = key;
@@ -160,10 +207,26 @@ export class UI {
     }
   }
 
+  // dock cards for towers not unlocked yet: map type → sector that unlocks it (or null)
+  setTowerLocks(locks) {
+    this.towerLocks = locks;
+    for (const type of TOWER_ORDER) this.cards[type].classList.toggle('locked', !!locks[type]);
+  }
+
   showTip(btn, type) {
-    const def = TOWERS[type], s = towerStats(type, []);
+    const def = TOWERS[type], s = this.game.statsFor(type, []);
     const tip = this.els.tooltip;
     tip.style.setProperty('--c', def.color);
+    const lock = this.towerLocks && this.towerLocks[type];
+    if (lock) {
+      tip.innerHTML = `<div class="t-name">${def.name}</div><div class="t-desc">${def.desc}</div>
+        <div class="t-hint">Locked · clear ${lock.name} · ${lock.title} to unlock</div>`;
+      tip.hidden = false;
+      const r = btn.getBoundingClientRect();
+      tip.style.left = clamp(r.left + r.width / 2 - tip.offsetWidth / 2, 8, window.innerWidth - tip.offsetWidth - 8) + 'px';
+      tip.style.top = r.top - tip.offsetHeight - 10 + 'px';
+      return;
+    }
     tip.innerHTML = `<div class="t-name">${def.name}</div><div class="t-desc">${def.desc}</div>
       <div class="t-stats">${statRows(s).map(([k, v]) => `<span><label>${k}</label>${v}</span>`).join('')}</div>
       <div class="t-tags">${statTags(s).map((x) => `<span class="tag">${x}</span>`).join('')}</div>
@@ -210,8 +273,9 @@ export class UI {
     });
     // hovering a sector card previews its map behind the menu
     e.overlay.addEventListener('pointerover', (ev) => {
-      const card = ev.target.closest('.sector');
-      if (card) this.ctl.preview?.(card.dataset.arg);
+      if (!this.els.overlay.classList.contains('start')) return;
+      const card = ev.target.closest('.node');
+      this.ctl.preview?.(card ? card.dataset.arg : this.view.menuSel);
     });
     e.panel.addEventListener('click', (ev) => {
       const b = ev.target.closest('[data-act]');
@@ -225,7 +289,7 @@ export class UI {
     e.panel.addEventListener('pointerover', (ev) => {
       const b = ev.target.closest('[data-act="upgrade"]');
       const t = this.view.selected;
-      this.view.previewStats = b && t ? towerStats(t.type, [...t.path, +b.dataset.i]) : null;
+      this.view.previewStats = b && t ? this.game.statsFor(t.type, [...t.path, +b.dataset.i]) : null;
     });
     e.panel.addEventListener('pointerleave', () => (this.view.previewStats = null));
   }
@@ -335,6 +399,115 @@ export class UI {
     }
   }
 
+  // ── Upgrade cards ──
+  // Three cards dealt face-down, flipping up one after another. Rarity colours the frame;
+  // tower cards show the tower itself, the rest an icon.
+  showCards(offer) {
+    let box = document.getElementById('cards');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'cards'; box.className = 'cards';
+      this.els.viewport.appendChild(box);
+      box.addEventListener('click', (ev) => {
+        if (ev.target.closest('[data-reroll]')) { this.ctl.rerollCards?.(); return; }
+        const b = ev.target.closest('.ucard');
+        if (b && !box.classList.contains('picking')) this.ctl.chooseCard?.(+b.dataset.i);
+      });
+      box.addEventListener('pointermove', (ev) => {
+        const b = ev.target.closest('.ucard');
+        if (!b || motion.reduced) return;
+        const r = b.getBoundingClientRect();
+        b.style.setProperty('--ry', (((ev.clientX - r.left) / r.width - 0.5) * 16).toFixed(1) + 'deg');
+        b.style.setProperty('--rx', ((0.5 - (ev.clientY - r.top) / r.height) * 12).toFixed(1) + 'deg');
+      });
+      box.addEventListener('pointerout', (ev) => {
+        const b = ev.target.closest('.ucard');
+        if (b && !b.contains(ev.relatedTarget)) { b.style.removeProperty('--rx'); b.style.removeProperty('--ry'); }
+      });
+    }
+    const RAR = { common: '#7fe9ff', rare: '#c561ff', epic: '#ffb800' };
+    const rr = this.game.rerolls > 0 ? `<button class="cards-reroll" data-reroll="1">⟳ Reroll · ${this.game.rerolls} left</button>` : '';
+    box.innerHTML = `<div class="cards-head"><span class="ck">Data cache recovered</span><b>Choose one upgrade</b><span class="ch">for the rest of this run · ${offer.map((_, i) => i + 1).join(' · ')}</span></div>
+      <div class="cards-row">${offer.map((c, i) => `<button class="ucard ${c.rarity}" data-i="${i}" style="--r:${RAR[c.rarity]};--c:${c.tower ? TOWERS[c.tower].color : RAR[c.rarity]};--d:${i * 120}ms">
+        <span class="uc-rar">${c.rarity}</span><span class="uc-key">${i + 1}</span>
+        <span class="uc-art">${c.tower ? '<canvas width="120" height="120"></canvas>' : cardIcon(c.id)}</span>
+        <span class="uc-name">${c.name}</span><span class="uc-desc">${c.desc}</span>
+        ${c.tower ? `<span class="uc-tag">${TOWERS[c.tower].name}</span>` : ''}
+      </button>`).join('')}</div>${rr}`;
+    box.querySelectorAll('.ucard').forEach((b, i) => {
+      const c = offer[i], cv = b.querySelector('canvas');
+      if (!cv || !c.tower) return;
+      const g = cv.getContext('2d');
+      g.scale(2.6, 2.6);
+      drawTower(g, { type: c.tower, stats: towerStats(c.tower, [0, 0]), x: 23, y: 22, angle: -0.8, recoil: 0, spin: 0, level: 3, spawnT: 1, id: 2, cooldown: 0, barrel: 0, upgradeFlash: 0, layT: 0 }, 1.2);
+    });
+    box.classList.remove('picking');
+    box.hidden = false;
+    this.bump(box, 'show');
+  }
+
+  // the chosen card lifts and flies to the strip; the others drop away
+  pickCard(i, picked) {
+    const box = document.getElementById('cards');
+    if (box && !box.hidden) {
+      box.classList.add('picking');
+      box.querySelectorAll('.ucard').forEach((b, k) => b.classList.add(k === i ? 'chosen' : 'gone'));
+      setTimeout(() => { box.hidden = true; box.classList.remove('show', 'picking'); }, motion.reduced ? 50 : 650);
+    }
+    this.renderPicked(picked);
+  }
+
+  hideCards() {
+    const box = document.getElementById('cards');
+    if (box) { box.hidden = true; box.classList.remove('show', 'picking'); }
+  }
+
+  // strip of upgrades taken this run (stacked by card), top-left of the board
+  renderPicked(picked = []) {
+    let strip = document.getElementById('picked');
+    if (!strip) {
+      strip = document.createElement('div');
+      strip.id = 'picked'; strip.className = 'picked';
+      this.els.viewport.appendChild(strip);
+    }
+    const counts = {};
+    for (const id of picked) counts[id] = (counts[id] || 0) + 1;
+    const RAR = { common: '#7fe9ff', rare: '#c561ff', epic: '#ffb800' };
+    strip.innerHTML = Object.entries(counts).map(([id, n]) => {
+      const c = CARDS.find((x) => x.id === id);
+      return `<span class="pk" style="--r:${RAR[c.rarity]};--c:${c.tower ? TOWERS[c.tower].color : RAR[c.rarity]}" title="${c.name} — ${c.desc}">${cardIcon(c.id, c.tower)}${n > 1 ? `<i>×${n}</i>` : ''}</span>`;
+    }).join('');
+    strip.hidden = !picked.length;
+  }
+
+  // achievement unlocked: a toast slides in at the top right
+  toast(a) {
+    let box = document.getElementById('toasts');
+    if (!box) { box = document.createElement('div'); box.id = 'toasts'; box.className = 'toasts'; document.body.appendChild(box); }
+    const el = document.createElement('div');
+    el.className = 'toast hudbox';
+    el.innerHTML = `<span class="ach-ic">${achIcon(a.icon)}</span>
+      <span class="ach-t"><em>Achievement unlocked</em><b>${a.name}</b><span>${a.desc}</span></span>`;
+    box.appendChild(el);
+    setTimeout(() => el.classList.add('out'), 4200);
+    setTimeout(() => el.remove(), 4800);
+  }
+
+  // the active sector rule, as a chip in the corner of the board (hover/tap for the details)
+  setRule(rule) {
+    let chip = document.getElementById('rule-chip');
+    if (!chip) {
+      chip = document.createElement('div');
+      chip.id = 'rule-chip'; chip.className = 'rule-chip';
+      this.els.viewport.appendChild(chip);
+    }
+    chip.hidden = !rule;
+    if (!rule) return;
+    chip.style.setProperty('--r', rule.color);
+    chip.innerHTML = `<b>${rule.name}</b><span>${rule.desc}</span>`;
+    chip.title = rule.desc;
+  }
+
   bump(el, cls = 'bump') {
     el.classList.remove(cls);
     void el.offsetWidth;
@@ -359,11 +532,18 @@ export class UI {
       if (v !== this.shownTxt) { e.credits.textContent = fmt(v); this.shownTxt = v; }
     }
     if (g.wave !== this.prev.wave) { e.waveNum.textContent = g.wave; this.prev.wave = g.wave; }
-    if (g.totalWaves !== this.prev.totalWaves) { e.waveTotal.textContent = g.totalWaves; this.prev.totalWaves = g.totalWaves; }
-    if (g.difficulty !== this.prev.difficulty) {
-      const d = g.diff;
-      e.waveNum.closest('.stat').querySelector('label').innerHTML = `Wave <span class="diff-tag" style="--c:${d.color}">${d.name}</span>`;
-      this.prev.difficulty = g.difficulty;
+    const tot = g.endless ? '∞' : g.totalWaves;
+    if (tot !== this.prev.totalWaves) { e.waveTotal.textContent = tot; this.prev.totalWaves = tot; }
+    const tagKey = g.difficulty + g.mode;
+    if (tagKey !== this.prev.difficulty) {
+      const d = g.diff, tag = g.mode === 'daily' ? ['Daily', g.mut.color || d.color] : [g.endless ? 'Endless · ' + d.name : d.name, d.color];
+      e.waveNum.closest('.stat').querySelector('label').innerHTML = `Wave <span class="diff-tag" style="--c:${tag[1]}">${tag[0]}</span>`;
+      e.scoreStat.hidden = g.mode === 'campaign';
+      this.prev.difficulty = tagKey;
+    }
+    if (g.mode !== 'campaign' && g.score !== this.prev.score) {
+      e.score.textContent = Math.round(g.score).toLocaleString('en-US');
+      this.prev.score = g.score;
     }
     if (g.lives !== this.prev.lives) {
       if (this.prev.lives !== undefined && g.lives < this.prev.lives) this.bump(e.livesStat, 'hit');
@@ -424,7 +604,7 @@ export class UI {
     const arm = this.view.sellArm;
     if (arm && performance.now() > arm.until) this.view.sellArm = null;
     const armed = !!(this.view.sellArm && this.view.sellArm.id === t.id);
-    const key = t.id + ':' + t.level + ':' + opts.map((o) => (this.game.credits >= o.cost ? 1 : 0)).join('') + ':' + (armed ? 'A' : '') + ':' + t.targeting;
+    const key = t.id + ':' + t.level + ':' + opts.map((o) => (this.game.credits >= this.game.costOf(o, t) ? 1 : 0)).join('') + ':' + (armed ? 'A' : '') + ':' + t.targeting;
     if (key !== this.panelKey) {
       const isNew = !this.panelKey.startsWith(t.id + ':');
       const keepPreview = !isNew && this.panelKey.split(':')[1] === String(t.level);
@@ -451,14 +631,14 @@ export class UI {
     if (opts.length) {
       up = `<div class="p-sec">Evolve to level ${t.level + 1} <em>choose one path</em></div><div class="p-upgrades">` +
         opts.map((o, i) => {
-          const ns = towerStats(t.type, [...t.path, i]);
+          const ns = this.game.statsFor(t.type, [...t.path, i]);
           const diff = diffLine(s, ns);
-          const ok = this.game.credits >= o.cost;
+          const ok = this.game.credits >= this.game.costOf(o, t);
           return `<button class="upg hudbox${ok ? '' : ' locked'}" data-act="upgrade" data-i="${i}" style="--c:${o.color}">
             <span class="u-key">${i === 0 ? 'Q' : 'E'}</span>
             <span class="u-name">${o.name}</span><span class="u-desc">${o.desc}</span>
             ${diff ? `<span class="u-diff">${diff}</span>` : ''}
-            <span class="u-cost">${CR}${o.cost}</span></button>`;
+            <span class="u-cost">${CR}${this.game.costOf(o, t)}</span></button>`;
         }).join('') + '</div>';
     } else {
       up = `<div class="p-max"><span>★</span> Fully evolved</div>`;
@@ -476,8 +656,8 @@ export class UI {
       <div class="p-meter">Damage dealt <b data-live="dealt">${fmt(t.dealt)}</b> · Kills <b data-live="kills">${fmt(t.kills)}</b></div>
       ${up}
       ${armed
-        ? `<button class="p-sell armed" data-act="sell">Confirm sell <b>+${Math.floor(t.invested * SELL_RATIO)}${CR}</b><kbd>S</kbd></button>`
-        : `<button class="p-sell" data-act="sell">Sell <b>+${Math.floor(t.invested * SELL_RATIO)}${CR}</b><kbd>S</kbd></button>`}`;
+        ? `<button class="p-sell armed" data-act="sell">Confirm sell <b>+${Math.floor(t.invested * this.game.sellRatio)}${CR}</b><kbd>S</kbd></button>`
+        : `<button class="p-sell" data-act="sell">Sell <b>+${Math.floor(t.invested * this.game.sellRatio)}${CR}</b><kbd>S</kbd></button>`}`;
     p.hidden = false;
   }
 
@@ -521,35 +701,102 @@ export class UI {
     const again = `<div class="ov-actions"><button class="btn-primary hudbox" data-act="restart">%s</button>
         <button class="btn-ghost" data-act="menu">Sectors</button></div>`;
     if (kind === 'start') {
-      const { maps, records = {}, current, difficulty = 'normal' } = data;
+      const { maps, records = {}, current, difficulty = 'normal', unlocked = {}, cleared = {} } = data;
+      const mode = data.mode || 'campaign', endless = mode === 'endless';
       const D = DIFFICULTIES[difficulty];
+      const tabs = `<div class="mode-tabs" role="tablist">${[['campaign', 'Campaign', 'Ten sectors'], ['endless', 'Endless', 'No last wave'], ['daily', 'Daily', 'Same for everyone']]
+        .map(([k, n, sub]) => `<button class="mt${k === mode ? ' on' : ''}" role="tab" aria-selected="${k === mode}" data-act="mode" data-arg="${k}"><b>${n}</b><span>${sub}</span></button>`).join('')}</div>`;
       const picker = `<div class="diff-pick">
           <div class="dp-seg">${DIFFICULTY_ORDER.map((k) => `<button class="dp${k === difficulty ? ' on' : ''}" data-act="difficulty" data-arg="${k}" style="--c:${DIFFICULTIES[k].color}">${DIFFICULTIES[k].name}</button>`).join('')}</div>
           <div class="dp-desc" style="--c:${D.color}">${D.desc}</div>
         </div>`;
-      const cards = maps.map((m) => {
-        const rec = records[m.id];
-        const recHtml = !rec ? '<span class="s-none">No record</span>'
-          : rec.stars ? `${stars(rec.stars)}<span>Secured</span>`
-          : `<span>Best: wave ${rec.wave}/${m.waves.length}</span>`;
-        const hot = m.difficulty === 'Advanced';
-        return `<button class="sector hudbox${m.id === current ? ' sel' : ''}" data-act="start" data-arg="${m.id}" style="--c:${hot ? '#ff2a6d' : '#00e5ff'}">
+      const accent = (m) => (m.theme && m.theme.ambient && m.theme.ambient[0]) || '#00e5ff';
+      const nDone = maps.filter((m) => cleared[m.id]).length;
+      const head = `<div class="camp-head"><span>${mode === 'daily' ? 'Daily' : endless ? 'Endless' : 'Campaign'}</span><i class="camp-bar"><i style="width:${(nDone / maps.length) * 100}%"></i></i><b>${nDone}/${maps.length} sectors secured</b>
+          <button class="lab-btn${data.labNew ? ' new' : ''}" data-act="lab"><i class="dt"></i>${data.data ?? 0} Data · Research</button>
+          <button class="lab-btn ach-btn" data-act="achievements">★ ${data.ach ? data.ach[0] : 0}/${data.ach ? data.ach[1] : 0}</button></div>`;
+      let body;
+      if (mode === 'daily') {
+        const d = data.daily, m = d.map, rec = d.rec, mut = d.mut, rule = m.rule && RULES[m.rule];
+        const now = new Date(), mid = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+        const left = Math.max(0, mid - now), hh = Math.floor(left / 3600e3), mm = Math.floor((left % 3600e3) / 60e3);
+        body = `<div class="camp-detail daily hudbox" style="--c:${mut.color}">
+          <canvas class="s-map big" data-map="${m.id}" aria-hidden="true"></canvas>
+          <div class="cd-body">
+            <div class="s-top"><span class="s-name">Daily challenge</span><span class="s-diff">${d.key}</span></div>
+            <div class="cd-title">${m.name} · ${m.title}</div>
+            <div class="cd-rule" style="--r:${mut.color}"><b>Today's twist · ${mut.name}</b>${mut.desc}</div>
+            ${rule ? `<div class="cd-rule" style="--r:${rule.color}"><b>Rule · ${rule.name}</b>${rule.desc}</div>` : ''}
+            <div class="s-meta"><b style="color:${d.diff.color}">${d.diff.name}</b> · ${m.waves.length} waves · every tower open · research off · same cards for everyone</div>
+            <div class="s-meta">Score: kills, cleared waves, early calls, and a bonus for every Core integrity left on a win.</div>
+            <div class="daily-stats">
+              <div><label>Best today</label><b>${rec.best ? rec.best.toLocaleString('en-US') : '—'}</b></div>
+              <div><label>Runs today</label><b>${rec.runs}</b></div>
+              <div><label>Streak</label><b>${rec.streak} day${rec.streak === 1 ? '' : 's'}</b></div>
+            </div>
+            <div class="cd-foot">
+              <span class="s-rec"><span>New challenge in ${hh}h ${String(mm).padStart(2, '0')}m</span></span>
+              <button class="btn-primary hudbox cd-go" data-act="start">${rec.runs ? 'Run it again ▸' : 'Run today ▸'}</button>
+            </div>
+          </div>
+        </div>`;
+      } else {
+        const erec = data.endless || {}, eopen = data.endlessOpen || {};
+        // sector nodes: number, title, then stars/medals (campaign) or best wave (endless), or a lock
+        const nodes = maps.map((m, i) => {
+          const seen = unlocked[m.id], open = endless ? eopen[m.id] : seen, rec = endless ? erec[m.id] : records[m.id];
+          const cls = `sector node hudbox${m.id === current ? ' sel' : ''}${open ? '' : ' locked'}${cleared[m.id] ? ' done' : ''}`;
+          const recHtml = !open ? '<i class="lock"></i>' : endless ? (rec ? `<span class="n-wave">w${rec.wave}</span>` : '')
+            : rec && rec.stars ? stars(rec.stars) : cleared[m.id] ? '<span class="n-clear">cleared</span>' : rec ? `<span class="n-wave">w${rec.wave}</span>` : '';
+          return `<button class="${cls}" data-act="pick" data-arg="${m.id}" style="--c:${open ? accent(m) : '#3d5866'}" aria-label="${m.name} ${m.title}${open ? '' : ' (locked)'}">
           <canvas class="s-map" data-map="${m.id}" aria-hidden="true"></canvas>
-          <span class="s-top"><span class="s-name">${m.name}</span><span class="s-diff">${m.difficulty}</span></span>
-          <span class="s-title">${m.title}</span>
-          <span class="s-desc">${m.desc}</span>
-          <span class="s-meta">${m.paths.length} breach${m.paths.length > 1 ? 'es' : ''} · ${m.waves.length} waves</span>
-          <span class="s-foot"><span class="s-rec">${recHtml}</span><span class="s-go">Jack in ▸</span></span>
+          <span class="n-num">${String(i + 1).padStart(2, '0')}</span>
+          <span class="n-title">${seen ? m.title : 'Locked'}</span>
+          ${open && !endless ? `<span class="n-medals">${(data.medals?.[m.id] || []).map((x) => `<i class="${x ? 'on' : ''}"></i>`).join('')}</span>` : ''}
+          <span class="n-rec">${recHtml}</span>
         </button>`;
-      }).join('');
-      html = `<div class="ov-card">
+        }).join('');
+        // detail of the selected sector
+        const sel = maps.find((m) => m.id === current) || maps[0];
+        const si = maps.indexOf(sel), open = endless ? eopen[sel.id] : unlocked[sel.id], rec = endless ? erec[sel.id] : records[sel.id];
+        const types = [...new Set(sel.waves.flat().map((g) => g[0]))].filter((t) => ENEMIES[t]);
+        const threats = types.map((t) => `<span class="nw-item" style="--c:${ENEMIES[t].color}" title="${ENEMIES[t].trait}"><i class="ico ${t}"></i>${ENEMIES[t].plural}</span>`).join('');
+        const recHtml = endless ? (rec ? `<span>Best on ${D.name}: <b>wave ${rec.wave}</b> · ${rec.score.toLocaleString('en-US')} pts</span>` : '<span class="s-none">No Endless run on ' + D.name + '</span>')
+          : !rec ? '<span class="s-none">No record on ' + D.name + '</span>'
+          : rec.stars ? `${stars(rec.stars)}<span>Secured on ${D.name}</span>` : `<span>Best on ${D.name}: wave ${rec.wave}/${sel.waves.length}</span>`;
+        const lockHtml = endless ? `<i class="lock"></i><span>Clear ${sel.name} · ${unlocked[sel.id] ? sel.title : 'this sector'} in the campaign to open its Endless run</span>`
+          : `<i class="lock"></i><span>Clear ${maps[si - 1]?.name} · ${maps[si - 1]?.title} to unlock</span>`;
+        const meta = endless ? `${sel.paths.length} breach${sel.paths.length > 1 ? 'es' : ''} · its ${sel.waves.length} waves, then it never stops · a Leviathan every 5th wave beyond`
+          : `${sel.paths.length} breach${sel.paths.length > 1 ? 'es' : ''} · ${sel.waves.length} waves${types.includes('boss') ? ' · <b class="cd-boss">boss</b>' : ''}`;
+        const detail = `<div class="camp-detail hudbox${open ? '' : ' locked'}${endless ? ' endless' : ''}" style="--c:${open ? accent(sel) : '#3d5866'}">
+          <canvas class="s-map big" data-map="${sel.id}" aria-hidden="true"></canvas>
+          <div class="cd-body">
+            <div class="s-top"><span class="s-name">${sel.name}</span><span class="s-diff">${endless ? 'Endless' : sel.difficulty}</span></div>
+            <div class="cd-title">${unlocked[sel.id] ? sel.title : 'Locked'}</div>
+            <div class="s-desc">${endless ? 'Hold the line as long as you can. Waves keep coming, denser and tougher, until the Core falls. Score: kills, waves and early calls.' : sel.desc}</div>
+            ${sel.rule && RULES[sel.rule] ? `<div class="cd-rule" style="--r:${RULES[sel.rule].color}"><b>Rule · ${RULES[sel.rule].name}</b>${RULES[sel.rule].desc}</div>` : ''}
+            <div class="s-meta">${meta}</div>
+            <div class="cd-threats">${threats}</div>
+            ${!endless && sel.medals && open ? `<div class="cd-medals">${sel.medals.map(([k, n], i) => { const got = data.medals?.[sel.id]?.[i]; return `<span class="cdm${got ? ' on' : ''}" title="${data.medalDefs[k].desc(n)}"><i></i><b>${data.medalDefs[k].name}</b> ${data.medalDefs[k].desc(n)}</span>`; }).join('')}<span class="cdm-note">Normal or harder · +15 Data each</span></div>` : ''}
+            ${endless ? '' : TOWER_ORDER.filter((t) => TOWERS[t].unlock === sel.id).map((t) => `<div class="cd-reward" style="--r:${TOWERS[t].color}">Clear to unlock · <b>${TOWERS[t].name}</b></div>`).join('')}
+            <div class="cd-foot">
+              <span class="s-rec">${open ? recHtml : lockHtml}</span>
+              ${open ? `<button class="btn-primary hudbox cd-go" data-act="start" data-arg="${sel.id}">${endless ? 'Enter the void ▸' : 'Jack in ▸'}</button>` : ''}
+            </div>
+          </div>
+        </div>`;
+        body = `<div class="camp-grid">${nodes}</div>${detail}`;
+      }
+      html = `<div class="ov-card campaign mode-${mode}">
         <div class="ov-kicker">Pixo Arcade // Tower Defense</div>
         <h1 class="ov-title glitch" data-text="VOID//WARDENS">VOID<span class="sl">//</span>WARDENS</h1>
         <p class="ov-tag">A breach has opened in the grid. Hostile code is pouring through. Keep it away from the Core.</p>
-        ${picker}
-        <div class="sectors">${cards}</div>
+        ${tabs}
+        ${mode === 'daily' ? '' : picker}
+        ${head}
+        ${body}
         <div class="ov-help">
-          <div><b>1–4</b> Pick a tower, click an empty tile to deploy</div>
+          <div><b>1–7</b> Pick a tower, click an empty tile to deploy</div>
           <div><b>Evolve</b> Every upgrade is a choice between two paths</div>
           <div><b>Space</b> Run waves early for bonus credits</div>
         </div></div>`;
@@ -569,14 +816,68 @@ export class UI {
           <div class="comfort-presets"><button class="btn-ghost" data-act="comfortPreset" data-arg="calm">Calm</button><button class="btn-ghost" data-act="comfortPreset" data-arg="full">Full</button></div>
         </div></div>`;
     } else if (kind === 'win') {
-      html = `<div class="ov-card win"><div class="ov-kicker">${data.sector} · ${data.diff.name} · Breach sealed</div><h2 class="ov-h2 glitch" data-text="System secure">System secure</h2>
+      const nx = data.next;
+      const unlockLine = nx ? `<div class="ov-unlock${nx.fresh ? ' fresh' : ''}">${nx.fresh ? '▸ New sector unlocked' : '▸ Up next'} · <b>${nx.name} · ${nx.title}</b></div>`
+        : data.final ? '<div class="ov-unlock fresh">▸ Campaign complete · <b>the grid is secure</b></div>' : '';
+      html = `<div class="ov-card win"><div class="ov-kicker">${data.sector} · ${data.diff.name} · Breach sealed</div><h2 class="ov-h2 glitch" data-text="${data.final ? 'Kernel secured' : 'System secure'}">${data.final ? 'Kernel secured' : 'System secure'}</h2>
         <div class="ov-stars">${stars(data.stars)}</div>
         <div class="ov-stats"><div><label>Core</label><b>${data.lives}/${data.maxLives}</b></div><div><label>Kills</label><b>${data.kills}</b></div><div><label>Towers</label><b>${data.towers}</b></div></div>
-        ${again.replace('%s', 'Play again')}
+        ${data.medals && data.medals.length ? `<div class="ov-medals">${data.medals.map((m) => `<span class="om${m.earned ? ' on' : ''}${m.fresh ? ' fresh' : ''}" title="${m.desc}"><i></i>${m.name}</span>`).join('')}</div>`
+          : data.diff && data.diff.name === 'Easy' ? '<div class="ov-medals note">Medals need Normal or harder</div>' : ''}
+        ${data.data ? `<div class="ov-data"><i class="dt"></i>+${data.data.earned + (data.data.medals || 0)} Data${data.data.medals ? ` <span>(${data.data.medals} from medals)</span>` : ''} <span>· ${data.data.total} total</span></div>` : ''}
+        ${unlockLine}
+        ${(data.newTowers || []).map((n) => `<div class="ov-unlock fresh tower">▸ New tower unlocked · <b>${n}</b></div>`).join('')}
+        ${data.endlessNew ? `<div class="ov-unlock fresh endless">▸ Endless opened · <b>${data.endlessNew}</b></div>` : ''}
+        ${nx ? `<div class="ov-actions"><button class="btn-primary hudbox" data-act="start" data-arg="${nx.id}">Next sector ▸</button>
+          <button class="btn-ghost" data-act="restart">Play again</button><button class="btn-ghost" data-act="menu">Sectors</button></div>` : again.replace('%s', 'Play again')}
         <button class="btn-ghost share" data-act="share">Share screenshot</button></div>`;
+    } else if (kind === 'ach') {
+      const done = data.list.filter((a) => a.done).length;
+      html = `<div class="ov-card achs"><div class="ov-kicker">Warden service record</div>
+        <h2 class="ov-h2">Achievements</h2>
+        <div class="lab-bal"><b>${done}</b>/ ${data.list.length} unlocked</div>
+        <div class="ach-grid">${data.list.map((a) => `<div class="ach${a.done ? ' done' : ''}">
+          <span class="ach-ic">${achIcon(a.icon)}</span>
+          <span class="ach-t"><b>${a.name}</b><span>${a.desc}</span>${a.goal && !a.done ? `<i class="ach-bar"><i style="width:${(a.prog / a.goal) * 100}%"></i></i><em>${a.prog} / ${a.goal}</em>` : ''}</span>
+        </div>`).join('')}</div>
+        <button class="btn-ghost" data-act="labBack">◂ Back to campaign</button></div>`;
+    } else if (kind === 'lab') {
+      const own = new Set(data.owned || []);
+      const cols = RESEARCH.map((b) => `<div class="lab-col" style="--c:${b.color}"><div class="lab-branch">${b.branch}</div>
+        ${b.nodes.map((n, i) => {
+          const has = own.has(n.id), prev = i === 0 || own.has(b.nodes[i - 1].id), afford = data.data >= n.cost;
+          const st = has ? 'owned' : !prev ? 'locked' : afford ? 'ready' : 'poor';
+          return `<button class="lab-node hudbox ${st}${n.id === data.fresh ? ' fresh' : ''}" data-act="buy" data-arg="${n.id}" ${has || st === 'locked' ? 'disabled' : ''}>
+            <span class="ln-tier">T${i + 1}</span><span class="ln-name">${n.name}</span><span class="ln-desc">${n.desc}</span>
+            <span class="ln-cost">${has ? '✓ Installed' : st === 'locked' ? 'Requires ' + b.nodes[i - 1].name : `<i class="dt"></i>${n.cost}`}</span></button>`;
+        }).join('<i class="lab-link"></i>')}</div>`).join('');
+      html = `<div class="ov-card lab"><div class="ov-kicker">Warden research lab</div>
+        <h2 class="ov-h2">Research</h2>
+        <div class="lab-bal"><i class="dt"></i><b>${data.data}</b> Data <span>· earned every run — more for waves cleared, wins, stars and harder difficulties</span></div>
+        <div class="lab-grid">${cols}</div>
+        <button class="btn-ghost" data-act="labBack">◂ Back to campaign</button></div>`;
+    } else if (kind === 'endless') {
+      html = `<div class="ov-card lose endless-res"><div class="ov-kicker">Endless · ${data.sector} · ${data.title} · ${data.diff.name}</div>
+        <h2 class="ov-h2 glitch" data-text="Signal lost">Signal lost</h2>
+        <div class="ov-score"><label>Fell on</label><b>Wave ${data.wave}</b>${data.better ? '<em>New best</em>' : data.prev ? `<span>Best: wave ${data.prev.wave}</span>` : '<em>First run</em>'}</div>
+        <div class="ov-stats"><div><label>Score</label><b>${data.score.toLocaleString('en-US')}</b></div><div><label>Kills</label><b>${data.kills}</b></div><div><label>Past the campaign</label><b>${data.beyond} wave${data.beyond === 1 ? '' : 's'}</b></div></div>
+        ${data.data ? `<div class="ov-data"><i class="dt"></i>+${data.data.earned} Data <span>· ${data.data.total} total</span></div>` : ''}
+        ${again.replace('%s', 'Go again')}
+        <button class="btn-ghost share" data-act="share">Share screenshot</button></div>`;
+    } else if (kind === 'daily') {
+      html = `<div class="ov-card ${data.won ? 'win' : 'lose'} daily-res" style="--mc:${data.mut.color}"><div class="ov-kicker">Daily · ${data.day} · ${data.sector} · ${data.title}</div>
+        <h2 class="ov-h2 glitch" data-text="${data.won ? 'Daily secured' : 'Daily breached'}">${data.won ? 'Daily secured' : 'Daily breached'}</h2>
+        <div class="ov-score"><label>Score</label><b>${data.score.toLocaleString('en-US')}</b>${data.newBest ? '<em>New best today</em>' : data.runs > 1 ? `<span>Best today: ${data.best.toLocaleString('en-US')}</span>` : ''}</div>
+        ${data.won ? `<div class="ov-stars">${stars(data.stars)}</div>` : ''}
+        <div class="ov-stats"><div><label>${data.won ? 'Core' : 'Reached'}</label><b>${data.won ? `${data.lives}/${data.maxLives}` : `Wave ${data.wave}`}</b></div><div><label>Kills</label><b>${data.kills}</b></div><div><label>Streak</label><b>${data.streak} day${data.streak === 1 ? '' : 's'}</b></div></div>
+        <div class="ov-unlock" style="--r:${data.mut.color}">Twist · <b>${data.mut.name}</b></div>
+        ${data.data ? `<div class="ov-data"><i class="dt"></i>+${data.data.earned} Data <span>· ${data.data.total} total</span></div>` : ''}
+        ${again.replace('%s', 'Run it again')}
+        <button class="btn-ghost share" data-act="share">Share score</button></div>`;
     } else if (kind === 'lose') {
       html = `<div class="ov-card lose"><div class="ov-kicker">${data.sector} · ${data.diff.name} · Core compromised</div><h2 class="ov-h2 glitch" data-text="System breached">System breached</h2>
         <div class="ov-stats"><div><label>Reached</label><b>Wave ${data.wave}</b></div><div><label>Kills</label><b>${data.kills}</b></div></div>
+        ${data.data ? `<div class="ov-data"><i class="dt"></i>+${data.data.earned} Data <span>· ${data.data.total} total</span></div>` : ''}
         ${again.replace('%s', 'Reboot')}</div>`;
     }
     o.innerHTML = html;

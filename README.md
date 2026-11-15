@@ -28,10 +28,22 @@ node tools/sim.mjs 3 sector-02 hard
 
 Bots play the real game logic and report wins and Core integrity after each wave. Bots don't use abilities or targeting modes, so they are weaker than a real player.
 
-| Bot games won (all strategies) | Easy | Normal | Hard | Nightmare |
+| Bot games won / median wave | Easy | Normal | Hard | Nightmare |
 |---|---|---|---|---|
-| Sector 01 | ~75% | ~25% | 0% (best builds ~25%) | 0% (die ~wave 6) |
-| Sector 02 | ~65% | ~15% | 0% (best builds ~6%) | 0% (die ~wave 7) |
+| Sector 01 | 50% · w10 | 5% · w7 | 0% · w5 | 0% · w3 |
+| Sector 02 | 53% · w12 | 11% · w9 | 0% · w7 | 0% · w3 |
+| Sector 03 | 44% · w12 | 5% · w8 | 0% · w4 | 0% · w2 |
+| Sector 04 | 34% · w9 | 13% · w7 | 0% · w5 | 2% · w2 |
+| Sector 05 | 50% · w12 | 4% · w7 | 0% · w3 | 0% · w1 |
+| Sector 06 | 44% · w13 | 11% · w6 | 0% · w4 | 0% · w2 |
+| Sector 07 | 31% · w10 | 5% · w6 | 0% · w6 | 0% · w2 |
+| Sector 08 | 38% · w13 | 2% · w11 | 6% · w6 | 0% · w2 |
+| Sector 09 | 31% · w10 | 2% · w6 | 0% · w5 | 0% · w2 |
+| Sector 10 | 31% · w7 | 0% · w4 | 0% · w3 | 0% · w1 |
+
+Level-3 balance is checked separately: one fully upgraded tower against a dense wave-9 stream for 60s, ranked by damage per credit and kills. The forms that dominated it were trimmed — **Corruption** (burn 30→15/s, at most 3 burning zones per launcher; it went from 16 kills to 2), **Botnet** (5 missiles, +30% reload), **Zero-Day**, **Hailstorm**, **Shatter**, **Absolute Zero**, **EMP Burst**, **Seed Nukes** and **Chain Reaction**.
+
+Measured with sector rules, new malware, campaign towers and upgrade cards. The bots never use abilities, pick cards at random and call every wave instantly, so they are far weaker than a real player — a skilled human 3-starred Nightmare on the previous tuning while bots were losing there. Read the table as relative difficulty, not absolute.
 
 ## Deploying (e.g. to Pixo)
 
@@ -39,23 +51,104 @@ Bots play the real game logic and report wins and Core integrity after each wave
 2. Upload `index.html`, `css/` and `src/` as they are. The game also works inside an `<iframe>`.
 3. Make sure the host doesn't cache `index.html` itself for long. Most hosts revalidate HTML by default. The fingerprinted JS and CSS can be cached forever.
 
-## Sectors and difficulty
+## Campaign, sectors and difficulty
 
-The start screen is a sector select with a difficulty picker. Your best result is saved in the browser for each sector and difficulty: 1–3 stars for a win (by share of Core integrity left), or the furthest wave reached.
+The start screen is the campaign: ten sectors in order, a difficulty picker, and a detail panel for the selected sector (route preview, threats, record). **Each sector unlocks once the one before it has been cleared on any difficulty**; winning shows the newly opened sector with a **Next sector** button. Your best result is saved in the browser for each sector and difficulty: 1–3 stars for a win (by share of Core integrity left), or the furthest wave reached. `?unlock` opens every sector for testing.
 
-| Sector | Layout | Waves | Notes |
+Every sector has its own layout, malware mix, **rule** (set as `rule` in `src/maps.js`, defined in `RULES` in `src/config.js`, applied by the simulation so the bots feel it too) and look — grid/bus colour, the backdrop far below the glass, weather, ambient light and colour grade — set in `theme`. The rule shows in the campaign panel, in the start banner and as a chip in the corner of the board.
+
+| Sector | Layout | Waves | Rule | New malware / focus | Look |
+|---|---|---|---|---|---|
+| **01 · Serpent Bus** | 1 breach, long winding route | 10 | — | Glitches, Trojans · boss | Cyan night city |
+| **02 · Twin Breach** | 2 breaches → shared trunk | 12 | — | Worms, Ciphers, Rootkits, Patchers · boss | Amber city, rain |
+| **03 · Cold Storage** | Spiral into a central Core | 12 | **Permafrost** — slows/freezes last 2× | **Furnace** | Ice blue, snow |
+| **04 · Neon Bazaar** | 3 breaches → one junction | 12 | **Market Rush** — kills +25% credits, 10s breaks | **Jammer** | Violet market, data glyphs |
+| **05 · Blackout** | 2 long lanes meeting before the Core | 12 | **Low Visibility** — range −12%, hit Rootkits exposed 2.5× longer | Rootkits, Jammers · boss | Dark blue, fog |
+| **06 · Foundry** | Hairpin folding back on itself | 13 | **Hardened** — malware +1 armor, armor-piercing +30% | **Bulwark** | Amber, embers |
+| **07 · Deep Archive** | Maze from the bottom edge | 13 | **Read-Only** — selling refunds 100% | **Carrier** | Green, dust |
+| **08 · Storm Front** | Mirrored lanes colliding at the Core | 14 | **Lightning** — strikes hit and stun malware | Mixed · boss | Indigo, lightning + thunder |
+| **09 · Orbital Relay** | Centre Core, breaches on both flanks | 14 | **Uplink** — abilities recharge 40% faster | **Blinker** | Silver, starfield, meteors |
+| **10 · The Kernel** | 3 breaches → serpentine trunk | 15 | **Kernel Panic** — each leak speeds all malware 25% for 4s | Everything · two bosses | Crimson, corruption static |
+
+New malware (stats in `ENEMIES`, `src/config.js`): **Furnace** — immune to slow and freeze, its heat pulses thaw allies nearby. **Jammer** — towers within its field reload 40% slower (static crawls over them). **Bulwark** — allies near it take 40% less damage (they show a hex shell). **Carrier** — drops pairs of Glitches as it walks (up to 6). **Blinker** — teleports ~2 tiles ahead every few seconds (not while a Firewall is up). A wave that brings a type for the first time in a sector says so in its banner.
+
+### Upgrade cards (data caches)
+
+After every 3rd wave (not the last) the grid recovers a **data cache**: three cards are dealt and you keep one for the rest of the run. Click a card or press **1 / 2 / 3**; the break clock waits while you choose. Cards come in three rarities (common 60% · rare 30% · epic 10%), tower cards are only dealt for towers you have on the board, and picks collect as chips in the top-left of the board (hover for details). Examples: **Overvolt** (Blasters +20% damage), **Forked Arcs** (+1 chain), **Overclock** (all towers +8% fire rate), **Precision Firmware** (hits ignore 2 armor), **Compound Interest** (6% of banked credits each wave), **Credit Cache** (+90 now), **Core Patch** (+3 integrity), **Deep Purge**, **Bastion Firewall**. The pool and its numbers live in `CARDS` in `src/config.js`; the sim's bots pick at random. To offset the power cards add, enemy HP is scaled by `HP_SCALE` (×1.12).
+
+### Research (permanent)
+
+Every run pays **Data**, win or lose: about 2 per wave cleared (a little more in later sectors), plus a win bonus of 18 + 6 per star, scaled by difficulty (Easy ×0.7 · Normal ×1 · Hard ×1.4 · Nightmare ×1.8). The win and loss screens show what you earned. Spend it in **Research** (button on the campaign screen) on 12 permanent upgrades in three branches; each node needs the one before it.
+
+| Economy | Arsenal | Core |
+|---|---|---|
+| Seed Funds — +25 starting credits (30) | Calibrated Optics — towers +6% range (40) | Core Plating — +2 Core (40) |
+| Salvage Protocols — sell refunds 80% (60) | Hardened Rounds — towers +6% damage (80) | Firewall Mk II — 15% faster, +1s (80) |
+| Bounty Index — kills +8% credits (110) | Rapid Tooling — first upgrade 12% cheaper (130) | Purge Capacitor — 15% faster (130) |
+| Venture Cache — caches deal 4 cards (170) | Cache Decryptor — reroll one cache per run (180) | Failsafe — once per run, survive a fatal breach at 1 Core and stun the board (200) |
+
+The whole lab costs 1,250 Data — roughly twenty good Normal wins. Nodes and the payout formula live in `RESEARCH` and `dataEarned` in `src/config.js`. The bot sim runs without research, so the balance tables describe a fresh player.
+
+### Campaign towers
+
+Clearing certain sectors (any difficulty) adds a tower to your arsenal for every sector; until then its dock card is locked and its tooltip says what opens it. The campaign panel shows the reward, and the win screen announces it. `?unlock` opens them all.
+
+| Tower | Unlocked by | Role | Level 2 → Level 3 |
 |---|---|---|---|
-| **01 · Serpent Bus** (Intro) | 1 breach, long winding route | 10 | Glitches, Trojans, Leviathan.exe boss |
-| **02 · Twin Breach** (Advanced) | 2 breaches merging into one trunk | 12 | Adds Worms, Ciphers, Rootkits and Patchers |
+| **Spike Lance** (key 5) | Clearing 03 · Cold Storage | Long-range sniper: instant, armor-piercing single hits | Long Barrel → Orbital Lance (marks +30% damage) / Executioner (deletes <25% HP) · Rapid Chamber → Ricochet (bounces ×2) / Disruptor (stuns, pops shields) |
+| **Overclock Hub** (key 6) | Clearing 06 · Foundry | Support: towers in its field fire +20% faster (best hub per stat, no stacking) | Amplifier → Overdrive / Targeting Array (field ignores armor, exposes cloaked) · Wide Mesh → Credit Miner (+5 per 4s) / Static Field (slow + vuln) |
+| **Logic Mines** (key 7) | Clearing 08 · Storm Front | Lays proximity mines on the bus in range, even between waves | Cluster Charges → Seed Nukes / Chain Reaction (+ burn) · Rapid Deploy → EMP Mines (stun, pop shields) / Tar Pits (slow) |
 
-| Difficulty | Enemies | Enemy HP | Credits per kill | Core |
-|---|---|---|---|---|
-| **Easy** | −20% | −15% | +15% | 25 |
-| **Normal** | — | — | — | 20 |
-| **Hard** | up to +30% | up to +15% | −10% | 20 |
-| **Nightmare** | up to +60% | up to +35% | −20% | 15 |
+Check them against the base towers with `node tools/sim.mjs 4 sector-06 normal only-new` (adds lance/hub/mines bot builds next to the standard mix; `new` runs them alongside all strategies).
 
-The Hard and Nightmare bonuses **ramp through the run**: 30% of the bonus on wave 1, rising to the full value on the last wave. The opening stays fair while you have no economy, and the late game gets the pressure. Easy's reductions apply in full from the start. Extra enemies arrive in the same time window, so waves get denser rather than longer. Tune it all in `DIFFICULTIES` in `src/config.js`.
+| Difficulty | Enemies | Enemy HP | Credits per kill | Core | Ramp starts at |
+|---|---|---|---|---|---|
+| **Easy** | −15% | −5% | +10% | 22 | — |
+| **Normal** | up to +15% | up to +15% | −5% | 20 | 30% |
+| **Hard** | up to +45% | up to +40% | −15% | 18 | 30% |
+| **Nightmare** | up to +80% | up to +75% | −25% | 12 | 35% |
+
+Bonuses above the base **ramp through the run**: each difficulty starts at its share of the bonus on wave 1 (Normal and Hard 30%, Nightmare 35%) and reaches the full value on the last wave, so the pressure lands in the late game, where fully upgraded towers are. Easy's reductions apply in full from the start. Extra enemies arrive in the same time window, so waves get denser rather than longer. Tune it all in `DIFFICULTIES` in `src/config.js`. All four tiers were raised after play-testing showed Nightmare could be 3-starred; at the same time the level-3 forms that out-scaled late waves were trimmed (see below).
+
+### Medals and achievements
+
+Each sector has **three medals**: optional challenges shown in the campaign detail panel and as three pips on the sector's node. Winning on **Normal or harder** awards every medal whose condition held for the whole run. Each new medal pays **+15 Data**, which is shown separately on the win screen. Medals stay earned; you can collect them across different runs. There are 30 in total. The challenge types (in `MEDALS` in `src/config.js`; each sector picks three and sets their numbers in `medals` in `src/maps.js`):
+
+| Medal | Condition |
+|---|---|
+| **Flawless** | Win without losing any Core integrity (every sector has it) |
+| **Lean Build** | Never have more than *N* towers on the board at once |
+| **Specialist** | Build only *N* tower types |
+| **Restraint** | Never evolve a tower to level 3 |
+| **Unassisted** | Never use Firewall or System Purge |
+| **Overclocked** | Call every wave early (the break timer never starts one for you) |
+
+**Achievements** are 20 account-wide goals. Examples: First Contact, Leviathan Slayer, Full Arsenal, Clean Sweep (10 kills with one Purge), Exterminator (1,000 kills), Close Call, Second Chance (win after the Failsafe), Untouchable, Nightmare Warden, Grid Secured, Gilded (all 30 medals), Full Clearance (whole lab), Into the Void (Endless wave 25), Daily Driver (Dailies on 5 days) and Creature of Habit (a 5-day Daily streak). They unlock mid-run or on the result screen with a toast and a chime. The **★ Achievements** button on the campaign screen opens the gallery, where counter goals show a progress bar. Lifetime stats (kills, cards taken, tower types built, bosses, wins) are saved when a run ends, restarts or returns to the menu. Definitions are in `ACHIEVEMENTS` in `src/config.js`. Progress is saved in the browser under `voidwardens.medals`, `voidwardens.ach` and `voidwardens.stats`.
+
+## Endless and Daily
+
+Tabs at the top of the start screen switch between **Campaign**, **Endless** and **Daily**. Both new modes keep a **score** (shown in the HUD): every kill pays its base bounty ×10, each cleared wave 100 × its number, and calling a wave early 10 per second skipped. A Daily win adds 1,000 plus 150 per Core integrity left. Numbers are in `SCORE` in `src/config.js`. Both modes pay Data like a campaign run but don't award medals or campaign records.
+
+**Endless** opens per sector once you've cleared it in the campaign, on any difficulty, and is played on the difficulty you pick. You play the sector's own waves, then it keeps going: "Into the void" marks the first wave past the campaign.
+- **Generated waves:** each one reuses one of the sector's last 4 waves, cycling, so the timings still fit its routes. Each wave past the campaign adds 7% more malware in the same time window, and HP keeps following the sector's curve.
+- **Leviathans:** one arrives every 5th wave beyond the campaign, scaled up with the HP curve, and two arrive from the 10th.
+- **Records:** waves are generated the same way for everyone. The best wave (and its score) is saved per sector and difficulty and shown on the sector node.
+- **Tuning:** `ENDLESS` in `src/config.js`; the generator is `endlessWave` in `src/modes.js`.
+- **Bot check:** `ENDLESS=1 node tools/sim.mjs 2 sector-01 easy`. Bots that survive the campaign usually fall between waves 15 and 40.
+
+**Daily** is one challenge per calendar day (it rolls over at local midnight), picked from the date alone. Everyone gets the same sector, the same **twist** and the same card hands for the same picks. It's always played on Normal, with all 7 towers open and research switched off, so nobody has an edge from progress. Twists live in `MUTATORS`:
+
+| Twist | Effect |
+|---|---|
+| Overclocked Malware | Malware +20% speed, kills +20% credits |
+| Swarm Protocol | +40% malware, each −25% HP |
+| Glass Core | Core integrity halved, towers +15% damage |
+| Venture Capital | +250 starting credits, kills −25% credits |
+| Data Surge | A data cache after every 2nd wave |
+| Plated Payloads | Malware +1 armor, towers +10% range |
+| Short Fuse | 8s breaks, early calls pay double |
+
+You can replay the Daily as often as you like. The panel keeps today's best score, today's runs and your **streak** (days in a row with a finished Daily; a missed day resets it). The result screen's **Share score** makes a framed screenshot with the date, twist and score. Saved in the browser under `voidwardens.daily` and `voidwardens.endless.<sector>.<difficulty>`. Try a twist in the sim with `DAILY=glass node tools/sim.mjs 2 sector-04`.
 
 ## Boot sequence, fullscreen and landscape
 
@@ -146,6 +239,7 @@ src/config.js     ← tuning: economy, enemies, towers & upgrade trees
 src/maps.js       ← sectors: routes, waves, starting credits, HP curve
 src/map.js        path math (multi-path), buildable tiles
 src/game.js       simulation (no DOM): waves, targeting, attacks, damage, status effects
+src/modes.js      Endless wave generator, Daily seed (sector + twist), seeded PRNG
 src/fx.js         particle / ring / beam / lightning state
 src/render.js     procedural canvas art (palette in PAL at the top): grid, bus, towers, enemies, effects
 src/ui.js         DOM HUD, dock, evolution panel, banners

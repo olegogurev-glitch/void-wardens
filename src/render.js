@@ -2,6 +2,7 @@
 // Everything is procedural: neon line-art on near-black, no image assets.
 import { WORLD_W, WORLD_H, TILE, COLS, ROWS, TOWERS } from './config.js';
 import { Post } from './post.js';
+import { Weather, makeStarfield } from './weather.js';
 
 const TAU = Math.PI * 2;
 export const PAL = {
@@ -70,7 +71,7 @@ export function light(color) {
 }
 // soft volumetric puff for smoke (normal blend)
 const puffCache = new Map();
-function puff(color) {
+export function puff(color) {
   let c = puffCache.get(color);
   if (!c) {
     c = makeSprite([[0, rgba(color, 0.55)], [0.45, rgba(color, 0.28)], [1, rgba(color, 0)]]);
@@ -120,7 +121,7 @@ function brackets(ctx, r, len) {
   }
 }
 // circuit-style lightning: orthogonal hops with a random elbow, re-rolled every frame
-function circuitPath(ctx, pts) {
+export function circuitPath(ctx, pts) {
   ctx.beginPath();
   ctx.moveTo(pts[0].x, pts[0].y);
   for (let i = 1; i < pts.length; i++) {
@@ -229,6 +230,9 @@ export function drawTower(ctx, t, time, opts = {}) {
     case 'arc': drawArc(ctx, t, s, col, time); break;
     case 'cryo': drawCryo(ctx, t, s, col, time); break;
     case 'launcher': drawLauncher(ctx, t, s, col, ang); break;
+    case 'lance': drawLance(ctx, t, s, col, time, ang); break;
+    case 'hub': drawHub(ctx, t, s, col, time); break;
+    case 'mines': drawMineLayer(ctx, t, s, col, time); break;
   }
 
   // level pips (little LEDs)
@@ -422,6 +426,73 @@ function drawLauncher(ctx, t, s, col, ang) {
   ctx.restore();
 }
 
+// Spike Lance: long rail barrel on a turntable, scope ring, charge line along the barrel
+function drawLance(ctx, t, s, col, time, ang) {
+  const ch = Math.max(0, Math.min(1, 1 - Math.max(0, t.cooldown) * s.rate));
+  ctx.save();
+  ctx.rotate(ang);
+  const rk = -t.recoil * 5, L = s.range > 300 ? 32 : 28;
+  ctx.fillStyle = '#0b1220'; ctx.strokeStyle = col; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.rect(rk, -2.5, L, 5); ctx.fill(); ctx.stroke();
+  ctx.fillRect(L - 4 + rk, -4, 4, 8); ctx.strokeRect(L - 4 + rk, -4, 4, 8);
+  add(ctx);
+  ctx.strokeStyle = rgba(col, 0.25 + 0.75 * ch); ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(4 + rk, 0); ctx.lineTo(4 + rk + (L - 8) * ch, 0); ctx.stroke();
+  if (ch > 0.95) sprite(ctx, glow(col), L + rk, 0, 5, 0.9);
+  norm(ctx);
+  // scope
+  ctx.strokeStyle = rgba(col, 0.85); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(-2, -7, 3, 0, TAU); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-2, -4); ctx.lineTo(-2, -2.5); ctx.stroke();
+  chip(ctx, 7.5, 2.5);
+  ctx.fillStyle = '#0a101c'; ctx.fill(); ctx.strokeStyle = col; ctx.lineWidth = 1.3; ctx.stroke();
+  add(ctx); sprite(ctx, glow(col), 0, 0, 6, 0.8); norm(ctx);
+  ctx.restore();
+}
+
+// Overclock Hub: three-prong antenna with a spinning halo; pulses outward
+function drawHub(ctx, t, s, col, time) {
+  ctx.save();
+  ctx.strokeStyle = rgba(col, 0.7); ctx.lineWidth = 1.2;
+  for (let i = 0; i < 3; i++) {
+    const a = -Math.PI / 2 + (i * TAU) / 3;
+    ctx.beginPath(); ctx.moveTo(Math.cos(a) * 4, Math.sin(a) * 4); ctx.lineTo(Math.cos(a) * 11, Math.sin(a) * 11); ctx.stroke();
+    ctx.fillStyle = col; ctx.fillRect(Math.cos(a) * 11 - 1.5, Math.sin(a) * 11 - 1.5, 3, 3);
+  }
+  ctx.save(); ctx.rotate(time * 1.4 + (t.id || 0));
+  ctx.setLineDash([3, 3]); ctx.strokeStyle = rgba(col, 0.6); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(0, 0, 8, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
+  ctx.restore();
+  add(ctx);
+  const p = (time * 0.8 + (t.id || 0) * 0.3) % 1;
+  ctx.strokeStyle = rgba(col, 0.5 * (1 - p)); ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.arc(0, 0, 6 + p * 16, 0, TAU); ctx.stroke();
+  sprite(ctx, glow(col), 0, 0, 7 + Math.sin(time * 4 + (t.id || 0)) * 1.5, 0.9);
+  if (s.mine) { ctx.fillStyle = 'rgba(255,224,102,0.9)'; ctx.fillRect(-1, -1, 2, 2); }
+  norm(ctx);
+  ctx.restore();
+}
+
+// Logic Mines: dispenser with a rotating drum of charges
+function drawMineLayer(ctx, t, s, col, time) {
+  ctx.save();
+  chip(ctx, 9, 3);
+  ctx.fillStyle = '#0a0f1b'; ctx.fill(); ctx.strokeStyle = col; ctx.lineWidth = 1.3; ctx.stroke();
+  ctx.save(); ctx.rotate(time * 0.9 + (t.id || 0));
+  for (let i = 0; i < 4; i++) {
+    const a = (i * TAU) / 4;
+    ctx.save(); ctx.translate(Math.cos(a) * 5, Math.sin(a) * 5); ctx.rotate(Math.PI / 4);
+    ctx.fillStyle = rgba(col, 0.85); ctx.fillRect(-1.6, -1.6, 3.2, 3.2);
+    ctx.restore();
+  }
+  ctx.restore();
+  add(ctx);
+  const ready = 1 - Math.max(0, t.layT || 0) * s.rate;
+  sprite(ctx, glow(col), 0, 0, 4 + ready * 3, 0.6 + 0.4 * ready);
+  norm(ctx);
+  ctx.restore();
+}
+
 // ── Enemies (hostile code) ──────────────────────────────────
 // opts.ghost: bare silhouette (no shadow, no status overlays) for reflections and derez slices
 function drawEnemy(ctx, e, time, map, opts = {}) {
@@ -558,6 +629,82 @@ function drawEnemy(ctx, e, time, map, opts = {}) {
     ctx.strokeStyle = rgba(col, 0.55); ctx.lineWidth = 1;
     ctx.beginPath(); ctx.arc(0, 0, r + 5, -Math.PI / 2, -Math.PI / 2 + TAU * f); ctx.stroke();
     add(ctx); sprite(ctx, glow(col), 0, 0, r * 0.45 + f * 2, 0.9); norm(ctx);
+  } else if (e.type === 'furnace') {
+    // hexagonal kiln with a molten core and a slow heat ring
+    ctx.save(); ctx.rotate(time * 0.6 + e.seed);
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) { const a = (i / 6) * TAU; ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r); }
+    ctx.closePath();
+    ctx.fillStyle = '#1a0702'; ctx.fill();
+    ctx.strokeStyle = col; ctx.lineWidth = 1.7; ctx.stroke();
+    ctx.restore();
+    add(ctx);
+    const heat = 0.6 + 0.4 * Math.sin(time * 5 + e.seed);
+    sprite(ctx, glow('#ffb347'), 0, 0, r * 0.7 * heat + 3, 1);
+    const ph = 1 - Math.max(0, e.thermalT) / e.def.thermal.every;
+    ctx.strokeStyle = rgba(col, 0.5 * (1 - ph)); ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.arc(0, 0, r + 3 + ph * 10, 0, TAU); ctx.stroke();
+    norm(ctx);
+  } else if (e.type === 'jammer') {
+    // diamond with an antenna; static rings show the jamming field
+    ctx.save(); ctx.rotate(Math.PI / 4);
+    square(ctx, r * 0.72);
+    ctx.fillStyle = '#12051a'; ctx.fill();
+    ctx.strokeStyle = col; ctx.lineWidth = 1.6; ctx.stroke();
+    ctx.restore();
+    ctx.strokeStyle = col; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(0, -r * 0.5); ctx.lineTo(0, -r - 6); ctx.stroke();
+    add(ctx);
+    sprite(ctx, glow(col), 0, -r - 6, 4 + Math.sin(time * 12 + e.seed) * 1.5, 1);
+    ctx.setLineDash([2, 5]); ctx.lineDashOffset = -time * 30;
+    const jr = e.def.jam.radius;
+    for (const k of [0.45, 0.75, 1]) {
+      ctx.strokeStyle = rgba(col, 0.22 * (1.2 - k)); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(0, 0, jr * ((k + time * 0.4) % 1 || 0.01), 0, TAU); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    norm(ctx);
+  } else if (e.type === 'bulwark') {
+    // shield-plate hull with a projected dome over its neighbours
+    ctx.save(); ctx.rotate(e.angle);
+    ctx.beginPath();
+    ctx.moveTo(r, 0); ctx.lineTo(r * 0.4, -r * 0.9); ctx.lineTo(-r * 0.8, -r * 0.7); ctx.lineTo(-r * 0.8, r * 0.7); ctx.lineTo(r * 0.4, r * 0.9); ctx.closePath();
+    ctx.fillStyle = '#1a0710'; ctx.fill();
+    ctx.strokeStyle = col; ctx.lineWidth = 1.8; ctx.stroke();
+    ctx.beginPath(); ctx.arc(r * 0.1, 0, r * 0.45, -1.2, 1.2); ctx.strokeStyle = rgba(col, 0.8); ctx.lineWidth = 1.3; ctx.stroke();
+    ctx.restore();
+    add(ctx);
+    sprite(ctx, glow(col), 0, 0, r * 0.45, 0.8);
+    ctx.strokeStyle = rgba(col, 0.16 + 0.06 * Math.sin(time * 3 + e.seed)); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(0, 0, e.def.aegis.radius, 0, TAU); ctx.stroke();
+    norm(ctx);
+  } else if (e.type === 'carrier') {
+    // long hull with bay lights that fill up before each drop
+    ctx.save(); ctx.rotate(e.angle);
+    chip(ctx, r, r * 0.35);
+    ctx.fillStyle = '#16030b'; ctx.fill();
+    ctx.strokeStyle = col; ctx.lineWidth = 1.8; ctx.stroke();
+    const fill = 1 - Math.max(0, e.carryT) / e.def.carry.every;
+    const left = e.def.carry.max - e.carried;
+    for (let i = 0; i < 3; i++) {
+      ctx.fillStyle = i < Math.ceil(left / 2) ? rgba(col, 0.35 + 0.65 * fill) : 'rgba(255,255,255,0.08)';
+      ctx.fillRect(-r * 0.55 + i * r * 0.42, -r * 0.18, r * 0.28, r * 0.36);
+    }
+    ctx.restore();
+    add(ctx); sprite(ctx, glow(col), 0, 0, r * 0.4, 0.6); norm(ctx);
+  } else if (e.type === 'blinker') {
+    // sharp dart with flickering afterimages; brightens just before a jump
+    const charge = 1 - Math.max(0, e.blinkT) / e.def.blink.every;
+    ctx.save(); ctx.rotate(e.angle);
+    const dart = () => { ctx.beginPath(); ctx.moveTo(r, 0); ctx.lineTo(-r * 0.8, -r * 0.7); ctx.lineTo(-r * 0.3, 0); ctx.lineTo(-r * 0.8, r * 0.7); ctx.closePath(); };
+    add(ctx);
+    for (let k = 1; k <= 2; k++) { ctx.save(); ctx.translate(-k * 7, 0); dart(); ctx.strokeStyle = rgba(col, 0.25 / k); ctx.lineWidth = 1; ctx.stroke(); ctx.restore(); }
+    norm(ctx);
+    dart();
+    ctx.fillStyle = '#121802'; ctx.fill();
+    ctx.strokeStyle = col; ctx.lineWidth = 1.6; ctx.stroke();
+    ctx.restore();
+    add(ctx); sprite(ctx, glow(col), 0, 0, r * 0.4 + charge * charge * 8, 0.5 + charge * 0.5); norm(ctx);
   } else {
     // Leviathan.exe — nested rotating frames + orbiting shards + glitch slices
     for (let i = 0; i < 3; i++) {
@@ -590,6 +737,14 @@ function drawEnemy(ctx, e, time, map, opts = {}) {
 
   // status overlays
   if (!opts.ghost) {
+    if (e.aegised && !cloaked) {
+      ctx.save(); ctx.rotate(time * 0.8);
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) { const a = (i / 6) * TAU; ctx.lineTo(Math.cos(a) * (r + 5), Math.sin(a) * (r + 5)); }
+      ctx.closePath();
+      ctx.strokeStyle = 'rgba(255,176,200,0.55)'; ctx.lineWidth = 1; ctx.stroke();
+      ctx.restore();
+    }
     if (e.flash > 0) {
       add(ctx); sprite(ctx, glow('#ffffff'), 0, 0, r * 1.2, (e.flash / 0.07) * 0.65); norm(ctx);
     }
@@ -675,8 +830,7 @@ export class Renderer {
     this.power = 1;           // CRT power-on transition progress
     this.comfort = { shake: 1, flash: 1 }; // player comfort scaling (pause menu)
     this.cine = null;         // boss entrance: letterbox + alarm
-    this.rain = [];
-    this.ripples = [];
+    this.weather = null;
     this.traffic = [];
     this.shatters = [];       // Cipher shields breaking apart
     this.nums = [];           // floating damage numbers
@@ -751,6 +905,10 @@ export class Renderer {
   }
 
   buildStatic() {
+    // the sector's grid/bus colour (themes can recolour the whole board) and a pale tint of it for lit lines
+    const G = this.gridCol = (this.theme.grid || PAL.grid);
+    const GL = this.gridLit = lerpColor(G, '#ffffff', 0.5);
+    this.tailGrad = null;
     const W = WORLD_W, H = WORLD_H;
     const rnd = mulberry32(11);
 
@@ -770,7 +928,7 @@ export class Renderer {
     // lit: the same linework at full brightness — the lighting pass reveals it near light sources
     const [lit, lg] = this.layer();
     // fine sub-grid (half tiles) for texture; only visible where light falls
-    lg.lineWidth = 0.6; lg.strokeStyle = 'rgba(127,240,255,0.22)';
+    lg.lineWidth = 0.6; lg.strokeStyle = rgba(GL, 0.22);
     lg.beginPath();
     for (let i = 0; i < COLS; i++) { lg.moveTo(i * TILE + TILE / 2 + 0.5, 0); lg.lineTo(i * TILE + TILE / 2 + 0.5, H); }
     for (let j = 0; j < ROWS; j++) { lg.moveTo(0, j * TILE + TILE / 2 + 0.5); lg.lineTo(W, j * TILE + TILE / 2 + 0.5); }
@@ -779,15 +937,15 @@ export class Renderer {
     both((c, dim) => {
       c.lineWidth = 1;
       for (let i = 0; i <= COLS; i++) {
-        c.strokeStyle = dim ? rgba(PAL.grid, i % 4 === 0 ? 0.1 : 0.045) : `rgba(140,245,255,${i % 4 === 0 ? 0.95 : 0.55})`;
+        c.strokeStyle = dim ? rgba(G, i % 4 === 0 ? 0.1 : 0.045) : rgba(GL, i % 4 === 0 ? 0.95 : 0.55);
         c.beginPath(); c.moveTo(i * TILE + 0.5, 0); c.lineTo(i * TILE + 0.5, H); c.stroke();
       }
       for (let j = 0; j <= ROWS; j++) {
-        c.strokeStyle = dim ? rgba(PAL.grid, j % 4 === 0 ? 0.1 : 0.045) : `rgba(140,245,255,${j % 4 === 0 ? 0.95 : 0.55})`;
+        c.strokeStyle = dim ? rgba(G, j % 4 === 0 ? 0.1 : 0.045) : rgba(GL, j % 4 === 0 ? 0.95 : 0.55);
         c.beginPath(); c.moveTo(0, j * TILE + 0.5); c.lineTo(W, j * TILE + 0.5); c.stroke();
       }
       // tiny "+" marks on major intersections
-      c.strokeStyle = dim ? rgba(PAL.grid, 0.3) : '#ffffff';
+      c.strokeStyle = dim ? rgba(G, 0.3) : '#ffffff';
       for (let i = 0; i <= COLS; i += 4) for (let j = 0; j <= ROWS; j += 4) {
         c.beginPath(); c.moveTo(i * TILE - 3, j * TILE + 0.5); c.lineTo(i * TILE + 4, j * TILE + 0.5);
         c.moveTo(i * TILE + 0.5, j * TILE - 3); c.lineTo(i * TILE + 0.5, j * TILE + 4); c.stroke();
@@ -808,10 +966,10 @@ export class Renderer {
         x = nx; y = ny; pts.push({ x, y }); horiz = !horiz;
       }
       both((cx, dim) => {
-        cx.strokeStyle = dim ? rgba(PAL.grid, 0.09) : 'rgba(140,245,255,0.8)'; cx.lineWidth = 1.2;
+        cx.strokeStyle = dim ? rgba(G, 0.09) : rgba(GL, 0.8); cx.lineWidth = 1.2;
         cx.beginPath(); pts.forEach((p, i) => (i ? cx.lineTo(p.x, p.y) : cx.moveTo(p.x, p.y))); cx.stroke();
-        cx.fillStyle = dim ? rgba(PAL.grid, 0.16) : '#ffffff'; cx.fillRect(pts[0].x - 2, pts[0].y - 2, 4, 4);
-        cx.strokeStyle = dim ? rgba(PAL.grid, 0.18) : 'rgba(200,250,255,0.95)'; cx.strokeRect(x - 3, y - 3, 6, 6);
+        cx.fillStyle = dim ? rgba(G, 0.16) : '#ffffff'; cx.fillRect(pts[0].x - 2, pts[0].y - 2, 4, 4);
+        cx.strokeStyle = dim ? rgba(G, 0.18) : rgba(GL, 0.95); cx.strokeRect(x - 3, y - 3, 6, 6);
       });
     }
     this.bg = bg;
@@ -827,14 +985,14 @@ export class Renderer {
       }
     };
     add(b);
-    stroke(56, rgba(PAL.grid, 0.025 / paths.length));
-    stroke(44, rgba(PAL.grid, 0.05 / paths.length));
+    stroke(56, rgba(G, 0.025 / paths.length));
+    stroke(44, rgba(G, 0.05 / paths.length));
     norm(b);
-    stroke(35, rgba(PAL.grid, 0.85));
+    stroke(35, rgba(G, 0.85));
     stroke(32, '#08131d');
-    stroke(32, rgba(PAL.grid, 0.03 / paths.length));
+    stroke(32, rgba(G, 0.03 / paths.length));
     // lane ticks along both edges (skipping positions inside another path's bus)
-    b.strokeStyle = rgba(PAL.grid, 0.28); b.lineWidth = 1;
+    b.strokeStyle = rgba(G, 0.28); b.lineWidth = 1;
     const onOtherBus = (x, y, self) => paths.some((p) => p !== self && p.segs.some((s) => {
       const px = x - s.x0, py = y - s.y0, along = px * s.ux + py * s.uy;
       return along >= -17 && along <= s.len + 17 && Math.abs(px * -s.uy + py * s.ux) <= 17;
@@ -869,7 +1027,7 @@ export class Renderer {
           const gr = tg.createLinearGradient(sg.x0 + ox * 16, sg.y0 + oy * 16, sg.x0 + ox * inner, sg.y0 + oy * inner);
           gr.addColorStop(0, 'rgba(0,0,0,0.8)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
           tg.fillStyle = gr;
-        } else tg.fillStyle = rgba(PAL.grid, 0.13);
+        } else tg.fillStyle = rgba(G, 0.13);
         tg.beginPath();
         tg.moveTo(ax + ox * 16, ay + oy * 16); tg.lineTo(bx + ox * 16, by + oy * 16);
         tg.lineTo(bx + ox * inner, by + oy * inner); tg.lineTo(ax + ox * inner, ay + oy * inner);
@@ -885,8 +1043,8 @@ export class Renderer {
     for (const path of paths) {
       const pts = path.points;
       for (let i = 1; i < pts.length - 1; i++) {
-        b.fillStyle = rgba(PAL.grid, 0.9); b.fillRect(pts[i].x - 2, pts[i].y - 2, 4, 4);
-        b.strokeStyle = rgba(PAL.grid, 0.35); b.strokeRect(pts[i].x - 6.5, pts[i].y - 6.5, 13, 13);
+        b.fillStyle = rgba(G, 0.9); b.fillRect(pts[i].x - 2, pts[i].y - 2, 4, 4);
+        b.strokeStyle = rgba(G, 0.35); b.strokeRect(pts[i].x - 6.5, pts[i].y - 6.5, 13, 13);
       }
     }
     this.bus = bus;
@@ -898,7 +1056,7 @@ export class Renderer {
       for (const path of paths) { lg.beginPath(); path.points.forEach((p, i) => (i ? lg.lineTo(p.x, p.y) : lg.moveTo(p.x, p.y))); lg.stroke(); }
     };
     lg.globalCompositeOperation = 'destination-out'; litStroke(37, '#000');
-    lg.globalCompositeOperation = 'source-over'; litStroke(36, 'rgba(200,250,255,0.5)');
+    lg.globalCompositeOperation = 'source-over'; litStroke(36, rgba(GL, 0.5));
     lg.globalCompositeOperation = 'destination-out'; litStroke(33, '#000');
     lg.globalCompositeOperation = 'source-over';
     this.litGrid = lit;
@@ -924,7 +1082,12 @@ export class Renderer {
     // ── far below the glass grid: a city at night (parallax layer, half resolution = soft focus)
     const th = this.theme;
     this.city = null;
-    if (th.city) {
+    this.twinkles = [];
+    if (th.backdrop === 'stars') {
+      this.city = makeStarfield(W, H, 60, this.k / 2, 97);
+      this.traffic = []; this.beacons = [];
+      this.twinkles = Array.from({ length: 40 }, () => ({ x: Math.random() * W, y: Math.random() * H, ph: Math.random() * TAU, s: 1 + Math.random() * 1.5 }));
+    } else if (th.city) {
       const M = 60, cs = this.k / 2;
       const c = document.createElement('canvas');
       c.width = Math.ceil((W + M * 2) * cs); c.height = Math.ceil((H + M * 2) * cs);
@@ -958,9 +1121,8 @@ export class Renderer {
       this.traffic = Array.from({ length: Math.round(26 * dens) + 6 }, () => this.newCar(rr));
       this.beacons = Array.from({ length: 6 }, () => ({ x: rr() * W, y: rr() * H, ph: rr() * TAU }));
     }
-    const drops = th.rain ? Math.round(340 * th.rain * this.q.rain * (motion.reduced ? 0.5 : 1)) : 0;
-    this.rain = Array.from({ length: drops }, () => this.newDrop(true));
-    this.ripples = [];
+    const wtype = th.weather || (th.rain ? 'rain' : null);
+    this.weather = new Weather(wtype, this.q.rain * (motion.reduced ? 0.5 : 1), { color: (th.ambient || [])[0], autoStrike: this.map.def.rule !== 'lightning' });
   }
 
   // ── light-cycle runners on the background grid ──
@@ -1021,15 +1183,6 @@ export class Renderer {
     };
   }
 
-  newDrop(initial = false) {
-    const life = 0.25 + Math.random() * 1.1;
-    const vy = 820 + Math.random() * 260, vx = vy * 0.17;
-    // spawn so that it lands somewhere on the board after `life` seconds
-    const lx = Math.random() * (WORLD_W + 80) - 40, ly = Math.random() * WORLD_H;
-    const t0 = initial ? Math.random() * life : life;
-    return { x: lx - vx * t0, y: ly - vy * t0, vx, vy, life: t0, len: 10 + Math.random() * 12, a: Math.random() < 0.25 ? 0.3 : 0.14 };
-  }
-
   newCar(rr = Math.random) {
     const S = this.cityStreets, horiz = rr() < 0.5;
     const lane = horiz ? S.y[Math.floor(rr() * S.y.length)] : S.x[Math.floor(rr() * S.x.length)];
@@ -1037,17 +1190,12 @@ export class Renderer {
     return { horiz, lane, p: rr() * (horiz ? WORLD_W + 120 : WORLD_H + 120) - 60, v: dir * (30 + rr() * 50), col: rr() < 0.5 ? '#ffffff' : '#ff3b3b' };
   }
 
-  stepWeather(dt) {
-    for (let i = 0; i < this.rain.length; i++) {
-      const d = this.rain[i];
-      d.x += d.vx * dt; d.y += d.vy * dt; d.life -= dt;
-      if (d.life <= 0) {
-        if (this.ripples.length < 70) this.ripples.push({ x: d.x, y: d.y, t: 0 });
-        this.rain[i] = this.newDrop();
-      }
+  stepWeather(dt, rt) {
+    const w = this.weather;
+    if (w) {
+      w.step(dt, rt);
+      if (w.thundered) { w.thundered = false; this.onThunder?.(); }
     }
-    for (const r of this.ripples) r.t += dt;
-    this.ripples = this.ripples.filter((r) => r.t < 0.42);
     for (const c of this.traffic) {
       c.p += c.v * dt;
       const L = c.horiz ? WORLD_W + 120 : WORLD_H + 120;
@@ -1069,6 +1217,10 @@ export class Renderer {
     ctx.globalAlpha = 0.55;
     ctx.drawImage(this.city, -M, -M, W + M * 2, H + M * 2);
     ctx.globalAlpha = 1;
+    for (const t of this.twinkles) {
+      const a = Math.max(0, Math.sin(rt * 1.8 + t.ph));
+      if (a > 0.6) sprite(ctx, glow('#dff4ff'), t.x, t.y, t.s * 4, (a - 0.6) * 2);
+    }
     if (!this.q.city) { norm(ctx); ctx.restore(); return; }
     for (const c of this.traffic) {
       const x = c.horiz ? c.p : c.lane + (c.p / H) * 30, y = c.horiz ? c.lane + (c.p / W) * 12 : c.p;
@@ -1082,34 +1234,9 @@ export class Renderer {
     ctx.restore();
   }
 
-  drawRipples(ctx) {
-    if (!this.ripples.length) return;
-    add(ctx);
-    ctx.lineWidth = 0.8;
-    for (const r of this.ripples) {
-      const p = r.t / 0.42;
-      ctx.strokeStyle = `rgba(190,225,255,${0.32 * (1 - p)})`;
-      ctx.beginPath(); ctx.ellipse(r.x, r.y, 1 + p * 8, (1 + p * 8) * 0.45, 0, 0, TAU); ctx.stroke();
-    }
-    norm(ctx);
-  }
+  drawRipples(ctx) { if (this.weather) this.weather.drawGround(ctx); }
 
-  drawRain(ctx) {
-    if (!this.rain.length) return;
-    add(ctx);
-    ctx.lineWidth = 1;
-    for (const a of [0.14, 0.3]) {
-      ctx.strokeStyle = `rgba(190,220,255,${a})`;
-      ctx.beginPath();
-      for (const d of this.rain) {
-        if (d.a !== a) continue;
-        const f = d.len / d.vy;
-        ctx.moveTo(d.x, d.y); ctx.lineTo(d.x - d.vx * f, d.y - d.len);
-      }
-      ctx.stroke();
-    }
-    norm(ctx);
-  }
+  drawRain(ctx, rt) { if (this.weather) this.weather.drawFront(ctx, rt); }
 
   // Boss entrance: letterbox bars + red alarm sweep; main.js adds the slow-mo, push-in and name card.
   cinematic(x, y, dur = 2.8) {
@@ -1132,6 +1259,71 @@ export class Renderer {
     ctx.fillRect(0, h - 1, WORLD_W, 1); ctx.fillRect(0, WORLD_H - h, WORLD_W, 1);
     norm(ctx);
   }
+
+  // a Jammer is in range: static crawls over the tower and its reload slows
+  drawJammed(ctx, t, time) {
+    const tick = Math.floor(time * 24);
+    ctx.save(); ctx.translate(t.x, t.y);
+    add(ctx);
+    for (let i = 0; i < 6; i++) {
+      const h = hash(tick * 1.7 + i * 9.3 + (t.id || 0));
+      ctx.fillStyle = h < 0.5 ? 'rgba(200,107,255,0.45)' : 'rgba(255,255,255,0.3)';
+      ctx.fillRect(-16 + hash(h * 7) * 12, -16 + h * 30, 8 + hash(h * 3) * 16, 1.5);
+    }
+    ctx.strokeStyle = 'rgba(200,107,255,0.7)'; ctx.lineWidth = 1;
+    ctx.setLineDash([2, 3]); ctx.lineDashOffset = -time * 20;
+    ctx.beginPath(); ctx.arc(0, 0, 21, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
+    norm(ctx);
+    ctx.restore();
+  }
+
+  // Overclock Hubs: faint data links to every tower they're boosting
+  drawHubLinks(ctx, game, time) {
+    const hubs = game.towers.filter((t) => t.type === 'hub' && t.spawnT >= 1);
+    if (!hubs.length) return;
+    add(ctx);
+    ctx.lineWidth = 1;
+    for (const h of hubs) {
+      const R2 = h.stats.range * h.stats.range;
+      for (const t of game.towers) {
+        if (t === h || t.type === 'hub' || (t.x - h.x) ** 2 + (t.y - h.y) ** 2 > R2) continue;
+        ctx.strokeStyle = rgba(h.stats.color, 0.18);
+        ctx.setLineDash([3, 5]); ctx.lineDashOffset = -time * 24;
+        ctx.beginPath(); ctx.moveTo(h.x, h.y); ctx.lineTo(t.x, t.y); ctx.stroke();
+        const p = (time * 0.9 + (t.id || 0) * 0.17) % 1;
+        sprite(ctx, glow(h.stats.color), h.x + (t.x - h.x) * p, h.y + (t.y - h.y) * p, 3, 0.7);
+      }
+      ctx.setLineDash([]);
+      // the field itself, very faint
+      ctx.strokeStyle = rgba(h.stats.color, 0.07); ctx.beginPath(); ctx.arc(h.x, h.y, h.stats.range, 0, TAU); ctx.stroke();
+    }
+    norm(ctx);
+  }
+
+  // Logic Mines on the bus: fly in from the dispenser, arm, then blink
+  drawMines(ctx, game, time) {
+    if (!game.mines || !game.mines.length) return;
+    for (const m of game.mines) {
+      const fly = Math.min(1, m.age / 0.4);
+      const x = m.fromX + (m.x - m.fromX) * easeOut(fly), y = m.fromY + (m.y - m.fromY) * easeOut(fly) - Math.sin(fly * Math.PI) * 18;
+      const armed = m.armT <= 0, s = m.big ? 7 : 5;
+      ctx.save(); ctx.translate(x, y); ctx.rotate(Math.PI / 4 + (armed ? 0 : time * 8));
+      ctx.fillStyle = '#060a14'; ctx.fillRect(-s, -s, s * 2, s * 2);
+      ctx.strokeStyle = m.color; ctx.lineWidth = 1.3; ctx.strokeRect(-s, -s, s * 2, s * 2);
+      ctx.restore();
+      add(ctx);
+      const blink = armed && Math.sin(time * 6 + m.x) > 0.3;
+      sprite(ctx, glow(m.color), x, y, blink ? 7 : 4, armed ? 0.9 : 0.5);
+      if (armed) {
+        ctx.strokeStyle = rgba(m.color, 0.12); ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(x, y, m.radius, 0, TAU); ctx.stroke();
+      }
+      norm(ctx);
+    }
+  }
+
+  // Lightning rule: the game picks the spot, the weather draws the bolt there
+  strike(x, y) { this.weather?.strikeAt?.(x, y); }
 
   // ── max-level signatures: each tower type gets its own ambient effect ──
   drawSignature(ctx, t, time) {
@@ -1259,11 +1451,14 @@ export class Renderer {
     // slow holographic scan band sweeping down the grid
     const by = ((rt * 62) % (H + 520)) - 260;
     const sg = L.createLinearGradient(0, by - 80, 0, by + 80);
-    sg.addColorStop(0, 'rgba(0,229,255,0)'); sg.addColorStop(0.5, 'rgba(0,229,255,0.32)'); sg.addColorStop(1, 'rgba(0,229,255,0)');
+    sg.addColorStop(0, rgba(this.gridCol, 0)); sg.addColorStop(0.5, rgba(this.gridCol, 0.32)); sg.addColorStop(1, rgba(this.gridCol, 0));
     L.fillStyle = sg; L.fillRect(0, by - 80, W, 160);
     // the whole grid breathes on the music's kick and snare
     const cf = this.comfort.flash;
     if (this.beat > 0.02) { L.fillStyle = rgba(amb[0], 0.15 * this.beat * cf * (motion.reduced ? 0.4 : 1)); L.fillRect(0, 0, W, H); }
+    // storm lightning: the whole grid flashes violet-white
+    const wf = this.weather ? this.weather.flash : 0;
+    if (wf > 0) { L.fillStyle = rgba('#c9b8ff', 0.55 * wf * cf); L.fillRect(0, 0, W, H); }
     // boss entrance: red alarm sweeping across the grid
     const fa = this.finalAlarm(game);
     if (fa > 0) {
@@ -1421,7 +1616,7 @@ export class Renderer {
     dt = Math.max(0, Math.min(0.1, dt));
     const K = 300, C = 2 * 0.55 * Math.sqrt(K); // ω ≈ 17 rad/s, ζ = 0.55
     for (const t of game.towers) {
-      if (t.type !== 'blaster' && t.type !== 'launcher') continue;
+      if (t.type !== 'blaster' && t.type !== 'launcher' && t.type !== 'lance') continue;
       let a = this.aim.get(t);
       if (!a) { a = { a: t.angle, v: 0, idle: 0, base: t.angle, rec: 0 }; this.aim.set(t, a); }
       a.seen = f;
@@ -1624,14 +1819,14 @@ export class Renderer {
 
   // ── final wave: red searchlights sweep from the Core, then a 3-2-1 countdown ──
   finalAlarm(game) {
-    const last = game.waves.length;
+    const last = game.lastWave;
     if (game.state === 'break' && game.wave === last - 1) return 1;
     if (game.state === 'wave' && game.wave === last && game.waveTime < 4) return 1 - game.waveTime / 4;
     return 0;
   }
 
   drawCountdown(ctx, game) {
-    if (!(game.state === 'break' && game.wave === game.waves.length - 1 && game.breakTimer <= 3 && game.breakTimer > 0)) return;
+    if (!(game.state === 'break' && game.wave === game.lastWave - 1 && game.breakTimer <= 3 && game.breakTimer > 0)) return;
     const n = Math.ceil(game.breakTimer), f = game.breakTimer - (n - 1); // 1 → 0 within each second
     const sc = 1 + (1 - easeOut(Math.min(1, (1 - f) * 4))) * 0.5;
     ctx.save();
@@ -1689,7 +1884,7 @@ export class Renderer {
     this.govern(rawDt);
     this.stepRunners(rdt);
     this.stepAmbient(rdt);
-    this.stepWeather(rdt);
+    this.stepWeather(rdt, rt);
     if (this.cine) this.cine.t += rdt;
     this.updateTrails(game);
     this.updateAim(game);
@@ -1744,11 +1939,11 @@ export class Renderer {
     this.drawBusFlow(ctx, time);
 
     const multi = this.map.paths.length > 1;
-    this.map.paths.forEach((p, i) => this.drawBreach(ctx, p.start, rt, game, multi ? 'BREACH ' + 'AB'[i] : 'BREACH'));
+    this.map.paths.forEach((p, i) => this.drawBreach(ctx, p, rt, game, multi ? 'BREACH ' + 'ABCDE'[i] : 'BREACH'));
     this.drawCore(ctx, this.map.core, rt, game);
 
     if (view.placing) {
-      ctx.strokeStyle = rgba(PAL.grid, 0.16); ctx.lineWidth = 1;
+      ctx.strokeStyle = rgba(this.gridCol, 0.16); ctx.lineWidth = 1;
       ctx.beginPath();
       for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
         if (!this.map.isBuildable(c, r) || game.towerAt(c, r)) continue;
@@ -1796,6 +1991,8 @@ export class Renderer {
     if (this.q.reflections) this.drawReflections(ctx, game, time);
     this.drawRipples(ctx);
     this.drawPools(ctx, game);
+    this.drawHubLinks(ctx, game, time);
+    this.drawMines(ctx, game, time);
     for (const t of game.towers) this.drawTowerAnimated(ctx, t, time);
     for (const fw of game.firewalls) this.drawFirewall(ctx, fw, fw.t / fw.max, rt, 1);
     this.drawTrails(ctx, game);
@@ -1873,7 +2070,7 @@ export class Renderer {
       ctx.fillStyle = t.color; ctx.fillText(t.str, t.x, t.y);
     }
     ctx.globalAlpha = 1;
-    this.drawRain(ctx);
+    this.drawRain(ctx, rt);
     this.drawBokeh(ctx, rt);
     this.drawLetterbox(ctx);
 
@@ -1891,6 +2088,11 @@ export class Renderer {
     ctx.drawImage(this.vignette, 0, 0);
     if (fx.flashA > 0) {
       ctx.fillStyle = `rgba(${fx.flashRGB},${fx.flashA * (reduced ? 0.15 : 0.45) * this.comfort.flash})`;
+      ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    }
+    const wf2 = this.weather ? this.weather.flash : 0;
+    if (wf2 > 0) {
+      ctx.fillStyle = `rgba(200,190,255,${wf2 * (reduced ? 0.08 : 0.3) * this.comfort.flash})`;
       ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
     }
     ctx.setTransform(k, 0, 0, k, 0, 0);
@@ -1924,18 +2126,25 @@ export class Renderer {
       bloomI: 0.78 * (1 + 0.3 * this.beat),
       streakI: 0.55,
       ca: reduced ? 0.0004 : 0.0005 + Math.min(0.006, shake * 0.0004) + fx.flashA * 0.005 * cf + this.wipe * 0.008 * cf,
-      glitch: reduced ? 0 : Math.min(1, Math.max(shake > 4.5 ? (shake - 4.5) / 12 : 0, this.wipe * Math.min(1, cf + 0.2))),
+      glitch: reduced ? 0 : Math.min(1, Math.max(shake > 4.5 ? (shake - 4.5) / 12 : 0, this.wipe * Math.min(1, cf + 0.2), (this.weather ? this.weather.tear : 0) * 0.3 * this.comfort.shake)),
       grain: 0.032,
       vig: 0.62,
       scanP: Math.max(2, Math.round(3 * this.dpr)),
       scanH: Math.max(1, Math.round(this.dpr)),
       scanA: 0.1,
-      flashA: fx.flashA * (reduced ? 0.15 : 0.42) * cf,
-      flashC: this.flashRGB.v,
+      ...this.flashParams(fx, reduced, cf),
       waves,
       mood: this.updateMood(game, rt),
       power: reduced ? 1 : this.power,
     });
+  }
+
+  // game flash (hits, purge) or storm lightning, whichever is stronger
+  flashParams(fx, reduced, cf) {
+    const k = (reduced ? 0.15 : 0.42) * cf;
+    const wf = this.weather ? this.weather.flash * (reduced ? 0.3 : 0.75) : 0;
+    if (wf * 0.42 > fx.flashA * 0.42) return { flashA: wf * k, flashC: [0.78, 0.74, 1] };
+    return { flashA: fx.flashA * k, flashC: this.flashRGB.v };
   }
 
   // Colour grade follows the moment: cool between waves, hot during the boss, grey on a loss,
@@ -1989,6 +2198,15 @@ export class Renderer {
     if (m) { this.drawMorph(ctx, t, time, (now - m.t0) / 0.5, m, ang); return; }
     drawTower(ctx, t, time, { angle: ang });
     if (t.level >= 3) this.drawSignature(ctx, t, time);
+    if (t.jammed) this.drawJammed(ctx, t, time);
+    if (t.stats.buffed) {
+      // overclocked: a small white chevron above the tower
+      add(ctx);
+      ctx.strokeStyle = 'rgba(238,243,255,0.8)'; ctx.lineWidth = 1.2;
+      const y = t.y - 24 + Math.sin(time * 4 + (t.id || 0)) * 1;
+      ctx.beginPath(); ctx.moveTo(t.x + 12, y + 3); ctx.lineTo(t.x + 15, y); ctx.lineTo(t.x + 18, y + 3); ctx.stroke();
+      norm(ctx);
+    }
   }
 
   // outline traces itself, a scan bar prints the body, then it flickers on with a flash
@@ -2091,7 +2309,7 @@ export class Renderer {
     const paths = this.map.paths;
     add(ctx);
     ctx.lineJoin = 'miter'; ctx.lineCap = 'butt';
-    ctx.strokeStyle = rgba(PAL.grid, 0.22 / Math.sqrt(paths.length)); ctx.lineWidth = 1;
+    ctx.strokeStyle = rgba(this.gridCol, 0.22 / Math.sqrt(paths.length)); ctx.lineWidth = 1;
     ctx.setLineDash([6, 14]); ctx.lineDashOffset = -time * 60;
     for (const path of paths) {
       ctx.beginPath(); path.points.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y))); ctx.stroke();
@@ -2106,23 +2324,25 @@ export class Renderer {
         ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.angle);
         if (!this.tailGrad) {
           this.tailGrad = ctx.createLinearGradient(-34, 0, -3, 0);
-          this.tailGrad.addColorStop(0, rgba(PAL.grid, 0)); this.tailGrad.addColorStop(1, rgba(PAL.grid, 0.55));
+          this.tailGrad.addColorStop(0, rgba(this.gridCol, 0)); this.tailGrad.addColorStop(1, rgba(this.gridCol, 0.55));
         }
         ctx.fillStyle = this.tailGrad; ctx.fillRect(-34, -1, 31, 2);
-        ctx.fillStyle = rgba(PAL.grid, 0.95); ctx.fillRect(-5, -1, 10, 2);
+        ctx.fillStyle = rgba(this.gridCol, 0.95); ctx.fillRect(-5, -1, 10, 2);
         ctx.fillStyle = '#ffffff'; ctx.fillRect(1, -0.6, 4, 1.2);
         ctx.restore();
-        sprite(ctx, glow(PAL.grid), p.x, p.y, 8, 0.45);
+        sprite(ctx, glow(this.gridCol), p.x, p.y, 8, 0.45);
       }
     });
     norm(ctx);
   }
 
-  drawBreach(ctx, P, rt, game, label = 'BREACH') {
+  drawBreach(ctx, path, rt, game, label = 'BREACH') {
+    const P = path.start, ang = path.segs[0].angle;
     const on = game.state === 'wave' ? 1 : 0.55;
     const col = PAL.hostile;
     ctx.save();
     ctx.translate(P.x, P.y);
+    ctx.rotate(ang); // the tear faces into its route
     add(ctx);
     sprite(ctx, aura(col), 0, 0, 70, 0.6 * on);
     // the tear
@@ -2145,10 +2365,16 @@ export class Renderer {
     ctx.moveTo(-12, -34); ctx.lineTo(-18, -34); ctx.lineTo(-18, 34); ctx.lineTo(-12, 34);
     ctx.moveTo(12, -34); ctx.lineTo(18, -34); ctx.lineTo(18, 34); ctx.lineTo(12, 34);
     ctx.stroke();
-    ctx.font = `600 8px ${MONO}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = rgba(col, 0.85);
-    ctx.fillText(label, 24, -30);
     ctx.restore();
+    // label: beside the tear, rotated with the route but always upright and on the board
+    const ox = 24 * Math.cos(ang) + 30 * Math.sin(ang), oy = 24 * Math.sin(ang) - 30 * Math.cos(ang);
+    ctx.font = `600 8px ${MONO}`; ctx.textBaseline = 'middle';
+    const tw = ctx.measureText(label).width;
+    const lx = Math.max(6, Math.min(WORLD_W - tw - 6, P.x + ox - (Math.cos(ang) < -0.5 ? tw : 0)));
+    const ly = Math.max(10, Math.min(WORLD_H - 10, P.y + oy));
+    ctx.textAlign = 'left';
+    ctx.fillStyle = rgba(col, 0.85);
+    ctx.fillText(label, lx, ly);
   }
 
   drawCore(ctx, C, rt, game) {

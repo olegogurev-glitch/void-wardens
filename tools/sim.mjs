@@ -3,6 +3,8 @@
 //   node tools/sim.mjs                  # sector-01, all strategies, 3 runs each
 //   node tools/sim.mjs 10 sector-02     # 10 runs each on Sector 02
 //   node tools/sim.mjs 5 sector-02 hard # on a difficulty: easy / normal / hard / nightmare
+//   ENDLESS=1 node tools/sim.mjs 3 sector-04 normal   # Endless mode: how far bots get past the campaign
+//   DAILY=overclock node tools/sim.mjs 3 sector-04    # with a Daily twist (MUTATORS key)
 //
 // Output per strategy × upgrade policy: result, waves reached, and Core integrity after
 // each wave. A healthy curve: one-tower spam and no-upgrade play lose; mixed, upgraded
@@ -32,10 +34,12 @@ const coverage = (c, r, range) => {
 
 function run(strategy, upgradeMode) {
   const game = new Game(map, DIFF);
+  if (process.env.ENDLESS) { game.mode = 'endless'; game.reset(); }
+  if (process.env.DAILY) { game.mode = 'daily'; game.mutator = process.env.DAILY; game.seed = 1; game.reset(); }
   const lives = [];
   let think = 0, built = 0;
   game.startWave();
-  for (let step = 0; !game.over && step < 60 * 60 * 30; step++) {
+  for (let step = 0; !game.over && step < 60 * 60 * (process.env.ENDLESS ? 120 : 30); step++) {
     game.update(1 / 60);
     if ((think += 1 / 60) < 0.5) continue;
     think = 0;
@@ -58,9 +62,10 @@ function run(strategy, upgradeMode) {
       }
       if (best) { game.place(want, best.c, best.r); built++; }
     }
+    if (game.offer) game.choose(Math.floor(Math.random() * game.offer.length)); // upgrade cards: bots pick at random
     if (game.state === 'break') { lives.push(game.lives); game.startWave(); }
   }
-  return { won: game.state === 'won', wave: game.wave, lives };
+  return { won: game.state === 'won', wave: game.wave, lives, score: game.score };
 }
 
 const STRATEGIES = {
@@ -69,12 +74,29 @@ const STRATEGIES = {
   heavy: ['blaster', 'launcher', 'cryo', 'launcher', 'arc'],
   arcCryo: ['blaster', 'cryo', 'arc', 'arc', 'cryo', 'arc'],
 };
+// campaign towers (only when asked: node tools/sim.mjs 3 sector-05 normal new)
+if (process.argv[5] === 'new') Object.assign(STRATEGIES, {
+  lanceMix: ['blaster', 'lance', 'cryo', 'arc', 'lance', 'launcher'],
+  hubMix: ['blaster', 'blaster', 'hub', 'arc', 'launcher', 'blaster', 'hub', 'cryo'],
+  minesMix: ['blaster', 'mines', 'cryo', 'mines', 'arc', 'launcher'],
+});
+if (process.argv[5] === 'only-new') { for (const k of Object.keys(STRATEGIES)) if (k !== 'mixed') delete STRATEGIES[k]; Object.assign(STRATEGIES, {
+  lanceMix: ['blaster', 'lance', 'cryo', 'arc', 'lance', 'launcher'],
+  hubMix: ['blaster', 'blaster', 'hub', 'arc', 'launcher', 'blaster', 'hub', 'cryo'],
+  minesMix: ['blaster', 'mines', 'cryo', 'mines', 'arc', 'launcher'],
+}); }
 let wins = 0, total = 0;
+const all = [];
 for (const [name, strat] of Object.entries(STRATEGIES)) {
   for (const up of ['none', 'A', 'B', 'mix']) {
     const res = Array.from({ length: RUNS }, () => run(strat, up));
     wins += res.filter((r) => r.won).length; total += res.length;
+    all.push(...res);
     console.log(name.padEnd(12), up.padEnd(5), res.map((r) => `${r.won ? 'WIN ' : 'LOSE'} w${String(r.wave).padStart(2)} [${r.lives.join(',')}]`).join('  '));
   }
 }
 console.log(`\n${wins}/${total} bot games won`);
+if (process.env.ENDLESS || process.env.DAILY) {
+  const ws = all.map((r) => r.wave).sort((a, b) => a - b), sc = all.map((r) => r.score).sort((a, b) => a - b);
+  console.log(`waves reached: median ${ws[ws.length >> 1]} · best ${ws.at(-1)} · score median ${sc[sc.length >> 1]} · best ${sc.at(-1)}`);
+}
