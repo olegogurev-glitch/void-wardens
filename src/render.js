@@ -2,6 +2,7 @@
 // Everything is procedural: neon line-art on near-black, no image assets.
 import { WORLD_W, WORLD_H, TILE, COLS, ROWS, TOWERS } from './config.js';
 import { Post } from './post.js';
+import { t as T } from './i18n.js';
 import { Weather, makeStarfield } from './weather.js';
 
 const TAU = Math.PI * 2;
@@ -1939,7 +1940,7 @@ export class Renderer {
     this.drawBusFlow(ctx, time);
 
     const multi = this.map.paths.length > 1;
-    this.map.paths.forEach((p, i) => this.drawBreach(ctx, p, rt, game, multi ? 'BREACH ' + 'ABCDE'[i] : 'BREACH'));
+    this.map.paths.forEach((p, i) => this.drawBreach(ctx, p, rt, game, multi ? T('BREACH') + ' ' + 'ABCDE'[i] : T('BREACH')));
     this.drawCore(ctx, this.map.core, rt, game);
 
     if (view.placing) {
@@ -2039,7 +2040,7 @@ export class Renderer {
         if (ok && view.touchPending === hov.c + ',' + hov.r) {
           ctx.font = `700 10px ${MONO}`; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
           ctx.fillStyle = PAL.ok;
-          ctx.fillText('TAP AGAIN TO DEPLOY', x, y - 26);
+          ctx.fillText(T('TAP AGAIN TO DEPLOY'), x, y - 26);
         }
       }
     }
@@ -2053,7 +2054,7 @@ export class Renderer {
         ctx.strokeStyle = rgba(PAL.hostile, 0.85); ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.moveTo(-6, -6); ctx.lineTo(6, 6); ctx.moveTo(6, -6); ctx.lineTo(-6, 6); ctx.stroke();
         ctx.font = `600 9px ${MONO}`; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-        ctx.fillStyle = rgba(PAL.hostile, 0.9); ctx.fillText('PLACE ON THE BUS', 0, -12);
+        ctx.fillStyle = rgba(PAL.hostile, 0.9); ctx.fillText(T('PLACE ON THE BUS'), 0, -12);
         ctx.restore();
       }
     }
@@ -2336,7 +2337,7 @@ export class Renderer {
     norm(ctx);
   }
 
-  drawBreach(ctx, path, rt, game, label = 'BREACH') {
+  drawBreach(ctx, path, rt, game, label = T('BREACH')) {
     const P = path.start, ang = path.segs[0].angle;
     const on = game.state === 'wave' ? 1 : 0.55;
     const col = PAL.hostile;
@@ -2459,7 +2460,7 @@ export class Renderer {
 
     ctx.font = `600 8px ${MONO}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillStyle = rgba(col, 0.9);
-    ctx.fillText(`CORE ${Math.round(health * 100)}%`, 0, 44);
+    ctx.fillText(T('CORE {n}%', { n: Math.round(health * 100) }), 0, 44);
     ctx.restore();
   }
 

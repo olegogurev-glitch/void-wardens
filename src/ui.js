@@ -2,6 +2,7 @@
 import { RESEARCH, CARDS, RULES, TOWERS, TOWER_ORDER, ENEMIES, START_LIVES, SELL_RATIO, WORLD_W, COLS, ROWS, ABILITIES, ABILITY_ORDER, DIFFICULTIES, DIFFICULTY_ORDER, towerStats, upgradeOptions, pathNames, waveHpMult } from './config.js';
 import { drawTower, motion } from './render.js';
 import { TARGET_MODES } from './game.js';
+import { t as T, fmt, count, enemyNoun, lang, LANGS } from './i18n.js';
 
 const ABILITY_ICONS = {
   firewall: '<svg viewBox="0 0 24 24" width="28" height="28"><path d="M4 6h16M4 12h16M4 18h16M8 6v6M16 6v6M12 12v6M6 18v0" stroke="currentColor" stroke-width="2" fill="none"/><rect x="3" y="3" width="18" height="18" stroke="currentColor" stroke-width="1" fill="none" opacity=".4"/></svg>',
@@ -16,59 +17,60 @@ const TARGET_HINTS = {
 };
 
 const $ = (id) => document.getElementById(id);
-const fmt = (n) => Math.round(n).toLocaleString('en-US');
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const CR = '<i class="cr"></i>';
 
 export function statRows(s) {
   if (s.kind === 'aura') {
-    const rows = [['FIELD', fmt(s.range)]];
-    if (s.buffRate) rows.push(['RATE', `+${Math.round(s.buffRate * 100)}%`]);
-    if (s.buffDmg) rows.push(['DMG', `+${Math.round(s.buffDmg * 100)}%`]);
+    const rows = [[T('FIELD'), fmt(s.range)]];
+    if (s.buffRate) rows.push([T('RATE'), `+${Math.round(s.buffRate * 100)}%`]);
+    if (s.buffDmg) rows.push([T('DMG'), `+${Math.round(s.buffDmg * 100)}%`]);
     return rows;
   }
-  if (s.kind === 'mines') return [['DMG', fmt(s.mineDmg)], ['MINES', `${s.maxMines} · ${s.rate.toFixed(2)}/s`], ['RANGE', fmt(s.range)]];
+  if (s.kind === 'mines') return [[T('DMG'), fmt(s.mineDmg)], [T('MINES'), `${s.maxMines} · ${T('{n}/s', { n: s.rate.toFixed(2) })}`], [T('RANGE'), fmt(s.range)]];
   const mult = s.kind === 'missile' && s.missiles > 1 ? ` ×${s.missiles}` : s.targets > 1 ? ` ×${s.targets}` : '';
   return [
-    ['DMG', fmt(s.damage) + mult],
-    ['RATE', (s.rate < 1 ? s.rate.toFixed(2) : s.rate.toFixed(1)) + '/s'],
-    ['RANGE', fmt(s.range)],
+    [T('DMG'), fmt(s.damage) + mult],
+    [T('RATE'), T('{n}/s', { n: s.rate < 1 ? s.rate.toFixed(2) : s.rate.toFixed(1) })],
+    [T('RANGE'), fmt(s.range)],
   ];
 }
 
+const pct = (v) => Math.round(v * 100);
 export function statTags(s) {
   const t = [];
-  if (s.kind === 'rail') t.push('Piercing beam');
-  if (s.kind === 'lance') t.push('Instant hit');
-  if (s.bounces) t.push(`Ricochet ×${s.bounces}`);
-  if (s.execute) t.push(`Executes <${Math.round(s.execute * 100)}% HP`);
-  if (s.vulnMark) t.push(`Marks +${Math.round(s.vulnMark * 100)}% dmg`);
-  if (s.strip) t.push('Pops shields');
-  if (s.kind === 'aura') t.push('Buffs towers in field');
-  if (s.buffRange) t.push(`+${Math.round(s.buffRange * 100)}% range to field`);
-  if (s.buffPierce) t.push('Field ignores armor');
-  if (s.revealField) t.push('Exposes cloaked');
-  if (s.mine) t.push(`+${s.mine} credits / 4s`);
-  if (s.kind === 'mines') t.push(`Blast ${fmt(s.mineRadius)}`);
-  if (s.mineStun) t.push(`Stun ${s.mineStun}s`);
-  if (s.mineSlow) t.push(`Tar ${Math.round(s.mineSlow * 100)}% slow`);
-  if (s.chain) t.push('Chain reaction');
-  if (s.mineBurn) t.push(`Burn ${s.mineBurn}/s`);
-  if (s.kind === 'chain') t.push(`Chains ×${s.chains}`);
-  if (s.kind === 'nova') t.push('Hits all in range');
-  if (s.kind === 'pulse') t.push(s.singularity ? 'Rollback pulse' : 'Area pulse');
-  if (s.splash && s.kind !== 'pulse') t.push(`Splash ${fmt(s.splash)}`);
-  if (s.slow) t.push(`Slow ${Math.round(s.slow * 100)}%`);
-  if (s.freezeChance) t.push(`Freeze ${Math.round(s.freezeChance * 100)}%`);
-  if (s.stunChance) t.push(`Stun ${Math.round(s.stunChance * 100)}%`);
-  if (s.vuln) t.push(`+${Math.round(s.vuln * 100)}% dmg taken`);
-  if (s.pull) t.push('Pulls back');
-  if (s.cluster) t.push(`Cluster ×${s.cluster}`);
-  if (s.burn) t.push(`Burn ${s.burn}/s`);
-  if (s.pierceArmor) t.push('Ignores armor');
-  if (s.spinUp) t.push(`Spin-up +${Math.round(s.spinUp * 100)}% rate`);
-  if (s.echo) t.push(`Echo strike ${Math.round(s.echo * 100)}%`);
-  if (s.hail) t.push(`Hail ×${s.hail}`);
+  const add = (text, n) => t.push(T(text, { n }));
+  if (s.kind === 'rail') add('Piercing beam');
+  if (s.kind === 'lance') add('Instant hit');
+  if (s.bounces) add('Ricochet ×{n}', s.bounces);
+  if (s.execute) add('Executes <{n}% HP', pct(s.execute));
+  if (s.vulnMark) add('Marks +{n}% dmg', pct(s.vulnMark));
+  if (s.strip) add('Pops shields');
+  if (s.kind === 'aura') add('Buffs towers in field');
+  if (s.buffRange) add('+{n}% range to field', pct(s.buffRange));
+  if (s.buffPierce) add('Field ignores armor');
+  if (s.revealField) add('Exposes cloaked');
+  if (s.mine) add('+{n} credits / 4s', s.mine);
+  if (s.kind === 'mines') add('Blast {n}', fmt(s.mineRadius));
+  if (s.mineStun) add('Stun {n}s', s.mineStun);
+  if (s.mineSlow) add('Tar {n}% slow', pct(s.mineSlow));
+  if (s.chain) add('Chain reaction');
+  if (s.mineBurn) add('Burn {n}/s', s.mineBurn);
+  if (s.kind === 'chain') add('Chains ×{n}', s.chains);
+  if (s.kind === 'nova') add('Hits all in range');
+  if (s.kind === 'pulse') add(s.singularity ? 'Rollback pulse' : 'Area pulse');
+  if (s.splash && s.kind !== 'pulse') add('Splash {n}', fmt(s.splash));
+  if (s.slow) add('Slow {n}%', pct(s.slow));
+  if (s.freezeChance) add('Freeze {n}%', pct(s.freezeChance));
+  if (s.stunChance) add('Stun {n}%', pct(s.stunChance));
+  if (s.vuln) add('+{n}% dmg taken', pct(s.vuln));
+  if (s.pull) add('Pulls back');
+  if (s.cluster) add('Cluster ×{n}', s.cluster);
+  if (s.burn) add('Burn {n}/s', s.burn);
+  if (s.pierceArmor) add('Ignores armor');
+  if (s.spinUp) add('Spin-up +{n}% rate', pct(s.spinUp));
+  if (s.echo) add('Echo strike {n}%', pct(s.echo));
+  if (s.hail) add('Hail ×{n}', s.hail);
   return t;
 }
 
@@ -110,8 +112,8 @@ export function describeWave(game, w) {
   const seen = new Set(game.waves.slice(0, w - 1).flat().map((g) => g[0]));
   return Object.entries(counts).map(([type, n]) => {
     const d = ENEMIES[type];
-    const label = d.boss ? d.name : `${n} ${n > 1 ? d.plural : d.name}`;
-    return !seen.has(type) && w > 1 && !d.boss ? `NEW: ${label} (${d.trait})` : label;
+    const label = d.boss ? d.name : `${n} ${enemyNoun(d, n)}`;
+    return !seen.has(type) && w > 1 && !d.boss ? T('NEW: {label} ({trait})', { label, trait: d.trait }) : label;
   }).join(' · ');
 }
 
@@ -171,10 +173,10 @@ export class UI {
       btn.className = 'ability hudbox';
       btn.style.setProperty('--c', a.color);
       btn.innerHTML = `<span class="key">${a.key}</span><span class="ab-icon">${ABILITY_ICONS[id]}</span>
-        <span class="info"><span class="name">${a.name}</span><span class="ab-cd">Ready</span></span><span class="ab-sweep"></span>`;
+        <span class="info"><span class="name">${a.name}</span><span class="ab-cd">${T('Ready')}</span></span><span class="ab-sweep"></span>`;
       btn.addEventListener('click', () => this.ctl.ability(id));
       btn.addEventListener('mouseenter', () => this.showTipHtml(btn, a.color,
-        `<div class="t-name">${a.name}</div><div class="t-desc">${a.desc}</div><div class="t-hint">Cooldown ${a.cooldown}s · key ${a.key}</div>`));
+        `<div class="t-name">${a.name}</div><div class="t-desc">${a.desc}</div><div class="t-hint">${T('Cooldown {n}s · key {k}', { n: a.cooldown, k: a.key })}</div>`));
       btn.addEventListener('mouseleave', () => (this.els.tooltip.hidden = true));
       this.els.dock.appendChild(btn);
       this.abilityBtns[id] = btn;
@@ -203,7 +205,7 @@ export class UI {
       btn.style.setProperty('--cd', ready ? 0 : left / cd);
       btn.classList.toggle('ready', ready && v.started && !g.over);
       btn.classList.toggle('active', v.ability === id);
-      btn.querySelector('.ab-cd').textContent = v.ability === id ? 'Click the bus' : ready ? 'Ready' : `${Math.ceil(left)}s`;
+      btn.querySelector('.ab-cd').textContent = v.ability === id ? T('Click the bus') : ready ? T('Ready') : T('{n}s', { n: Math.ceil(left) });
     }
   }
 
@@ -220,7 +222,7 @@ export class UI {
     const lock = this.towerLocks && this.towerLocks[type];
     if (lock) {
       tip.innerHTML = `<div class="t-name">${def.name}</div><div class="t-desc">${def.desc}</div>
-        <div class="t-hint">Locked · clear ${lock.name} · ${lock.title} to unlock</div>`;
+        <div class="t-hint">${T('Locked · clear {sector} · {title} to unlock', { sector: lock.name, title: lock.title })}</div>`;
       tip.hidden = false;
       const r = btn.getBoundingClientRect();
       tip.style.left = clamp(r.left + r.width / 2 - tip.offsetWidth / 2, 8, window.innerWidth - tip.offsetWidth - 8) + 'px';
@@ -230,7 +232,7 @@ export class UI {
     tip.innerHTML = `<div class="t-name">${def.name}</div><div class="t-desc">${def.desc}</div>
       <div class="t-stats">${statRows(s).map(([k, v]) => `<span><label>${k}</label>${v}</span>`).join('')}</div>
       <div class="t-tags">${statTags(s).map((x) => `<span class="tag">${x}</span>`).join('')}</div>
-      <div class="t-hint">2 evolution paths · 4 final forms</div>`;
+      <div class="t-hint">${T('2 evolution paths · 4 final forms')}</div>`;
     tip.hidden = false;
     const r = btn.getBoundingClientRect();
     const w = tip.offsetWidth, h = tip.offsetHeight;
@@ -426,10 +428,10 @@ export class UI {
       });
     }
     const RAR = { common: '#7fe9ff', rare: '#c561ff', epic: '#ffb800' };
-    const rr = this.game.rerolls > 0 ? `<button class="cards-reroll" data-reroll="1">⟳ Reroll · ${this.game.rerolls} left</button>` : '';
-    box.innerHTML = `<div class="cards-head"><span class="ck">Data cache recovered</span><b>Choose one upgrade</b><span class="ch">for the rest of this run · ${offer.map((_, i) => i + 1).join(' · ')}</span></div>
+    const rr = this.game.rerolls > 0 ? `<button class="cards-reroll" data-reroll="1">${T('⟳ Reroll · {n} left', { n: this.game.rerolls })}</button>` : '';
+    box.innerHTML = `<div class="cards-head"><span class="ck">${T('Data cache recovered')}</span><b>${T('Choose one upgrade')}</b><span class="ch">${T('for the rest of this run · {keys}', { keys: offer.map((_, i) => i + 1).join(' · ') })}</span></div>
       <div class="cards-row">${offer.map((c, i) => `<button class="ucard ${c.rarity}" data-i="${i}" style="--r:${RAR[c.rarity]};--c:${c.tower ? TOWERS[c.tower].color : RAR[c.rarity]};--d:${i * 120}ms">
-        <span class="uc-rar">${c.rarity}</span><span class="uc-key">${i + 1}</span>
+        <span class="uc-rar">${T(c.rarity)}</span><span class="uc-key">${i + 1}</span>
         <span class="uc-art">${c.tower ? '<canvas width="120" height="120"></canvas>' : cardIcon(c.id)}</span>
         <span class="uc-name">${c.name}</span><span class="uc-desc">${c.desc}</span>
         ${c.tower ? `<span class="uc-tag">${TOWERS[c.tower].name}</span>` : ''}
@@ -487,7 +489,7 @@ export class UI {
     const el = document.createElement('div');
     el.className = 'toast hudbox';
     el.innerHTML = `<span class="ach-ic">${achIcon(a.icon)}</span>
-      <span class="ach-t"><em>Achievement unlocked</em><b>${a.name}</b><span>${a.desc}</span></span>`;
+      <span class="ach-t"><em>${T('Achievement unlocked')}</em><b>${a.name}</b><span>${a.desc}</span></span>`;
     box.appendChild(el);
     setTimeout(() => el.classList.add('out'), 4200);
     setTimeout(() => el.remove(), 4800);
@@ -536,13 +538,13 @@ export class UI {
     if (tot !== this.prev.totalWaves) { e.waveTotal.textContent = tot; this.prev.totalWaves = tot; }
     const tagKey = g.difficulty + g.mode;
     if (tagKey !== this.prev.difficulty) {
-      const d = g.diff, tag = g.mode === 'daily' ? ['Daily', g.mut.color || d.color] : [g.endless ? 'Endless · ' + d.name : d.name, d.color];
-      e.waveNum.closest('.stat').querySelector('label').innerHTML = `Wave <span class="diff-tag" style="--c:${tag[1]}">${tag[0]}</span>`;
+      const d = g.diff, tag = g.mode === 'daily' ? [T('Daily'), g.mut.color || d.color] : [g.endless ? T('Endless · {name}', { name: d.name }) : d.name, d.color];
+      e.waveNum.closest('.stat').querySelector('label').innerHTML = `${T('Wave')} <span class="diff-tag" style="--c:${tag[1]}">${tag[0]}</span>`;
       e.scoreStat.hidden = g.mode === 'campaign';
       this.prev.difficulty = tagKey;
     }
     if (g.mode !== 'campaign' && g.score !== this.prev.score) {
-      e.score.textContent = Math.round(g.score).toLocaleString('en-US');
+      e.score.textContent = fmt(g.score);
       this.prev.score = g.score;
     }
     if (g.lives !== this.prev.lives) {
@@ -568,11 +570,11 @@ export class UI {
       this.prev.cta = key;
       const next = g.wave + 1;
       if (key === 'none') e.cta.innerHTML = '';
-      else if (g.state === 'ready') e.cta.innerHTML = this.nextWavePreview(next) + `<button class="cta hudbox pulse" data-act="wave"><span class="tri"></span>Run wave ${next}<kbd>Space</kbd></button>`;
+      else if (g.state === 'ready') e.cta.innerHTML = this.nextWavePreview(next) + `<button class="cta hudbox pulse" data-act="wave"><span class="tri"></span>${T('Run wave {n}', { n: next })}<kbd>${T('Space')}</kbd></button>`;
       else if (g.state === 'break') {
         const s = Math.ceil(g.breakTimer);
-        e.cta.innerHTML = this.nextWavePreview(next) + `<button class="cta hudbox" data-act="wave"><span class="tri"></span>Wave ${next} in ${s}s · Run now <span class="bonus">+${s * 3}${CR}</span></button>`;
-      } else e.cta.innerHTML = `<div class="cta-info"><span class="dot"></span>Wave ${g.wave} · <b>${g.hostilesLeft}</b> threats</div>`;
+        e.cta.innerHTML = this.nextWavePreview(next) + `<button class="cta hudbox" data-act="wave"><span class="tri"></span>${T('Wave {n} in {s} · Run now', { n: next, s: T('{n}s', { n: s }) })} <span class="bonus">+${s * 3}${CR}</span></button>`;
+      } else e.cta.innerHTML = `<div class="cta-info"><span class="dot"></span>${T('Wave {w} · {n} threats', { w: g.wave, n: `<b>${g.hostilesLeft}</b>` })}</div>`;
     }
 
     this.updatePanel(dt);
@@ -585,11 +587,11 @@ export class UI {
     for (const [type, n] of this.game.waves[w - 1]) counts[type] = (counts[type] || 0) + this.game.scaledCount(type, n, w);
     const items = Object.entries(counts).map(([type, n]) => {
       const d = ENEMIES[type];
-      const label = d.boss ? d.name : `<b>${n}</b> ${n > 1 ? d.plural : d.name}`;
+      const label = d.boss ? d.name : `<b>${n}</b> ${enemyNoun(d, n)}`;
       return `<span class="nw-item" style="--c:${d.color}"><i class="ico ${type}"></i>${label}<em>${d.trait}</em></span>`;
     }).join('');
     const hp = waveHpMult(w, this.game.map.def.hpCurve) * this.game.diffFactor('hp', w);
-    return `<div class="next-wave"><span class="nw-label">Next</span>${items}${hp > 1.05 ? `<span class="nw-hp">HP ×${hp.toFixed(1)}</span>` : ''}</div>`;
+    return `<div class="next-wave"><span class="nw-label">${T('Next')}</span>${items}${hp > 1.05 ? `<span class="nw-hp">HP ×${hp.toFixed(1)}</span>` : ''}</div>`;
   }
 
   // ── Tower panel ─────────────────────────────────────────
@@ -626,10 +628,10 @@ export class UI {
   renderPanel(t, opts, armed = false) {
     const s = t.stats, def = TOWERS[t.type], p = this.els.panel;
     const names = pathNames(t.type, t.path);
-    const crumbs = [`<span>Lv ${t.level}</span>`, ...names.map((n) => `<span>${n}</span>`)].join('<i>›</i>');
+    const crumbs = [`<span>${T('Lv {n}', { n: t.level })}</span>`, ...names.map((n) => `<span>${n}</span>`)].join('<i>›</i>');
     let up;
     if (opts.length) {
-      up = `<div class="p-sec">Evolve to level ${t.level + 1} <em>choose one path</em></div><div class="p-upgrades">` +
+      up = `<div class="p-sec">${T('Evolve to level {n}', { n: t.level + 1 })} <em>${T('choose one path')}</em></div><div class="p-upgrades">` +
         opts.map((o, i) => {
           const ns = this.game.statsFor(t.type, [...t.path, i]);
           const diff = diffLine(s, ns);
@@ -641,23 +643,23 @@ export class UI {
             <span class="u-cost">${CR}${this.game.costOf(o, t)}</span></button>`;
         }).join('') + '</div>';
     } else {
-      up = `<div class="p-max"><span>★</span> Fully evolved</div>`;
+      up = `<div class="p-max"><span>★</span> ${T('Fully evolved')}</div>`;
     }
     p.style.setProperty('--c', s.color);
     p.innerHTML = `
       <div class="p-head">
         <div class="p-title"><div class="p-name">${def.name}</div><div class="p-crumbs">${crumbs}</div></div>
-        <button class="p-close" data-act="close" aria-label="Close">✕</button>
+        <button class="p-close" data-act="close" aria-label="${T('Close')}">✕</button>
       </div>
       <div class="p-stats">${statRows(s).map(([k, v]) => `<div class="ps"><label>${k}</label><b>${v}</b></div>`).join('')}</div>
       <div class="p-tags">${statTags(s).map((x) => `<span class="tag">${x}</span>`).join('')}</div>
-      ${s.kind === 'pulse' || s.kind === 'nova' ? '' : `<div class="p-target"><label>Target<kbd>T</kbd></label><div class="seg">${TARGET_MODES.map((m) =>
-        `<button data-act="target" data-mode="${m}" class="${t.targeting === m ? 'on' : ''}" title="${TARGET_HINTS[m]}">${m}</button>`).join('')}</div></div>`}
-      <div class="p-meter">Damage dealt <b data-live="dealt">${fmt(t.dealt)}</b> · Kills <b data-live="kills">${fmt(t.kills)}</b></div>
+      ${s.kind === 'pulse' || s.kind === 'nova' ? '' : `<div class="p-target"><label>${T('Target')}<kbd>T</kbd></label><div class="seg">${TARGET_MODES.map((m) =>
+        `<button data-act="target" data-mode="${m}" class="${t.targeting === m ? 'on' : ''}" title="${T(TARGET_HINTS[m])}">${T(m)}</button>`).join('')}</div></div>`}
+      <div class="p-meter">${T('Damage dealt')} <b data-live="dealt">${fmt(t.dealt)}</b> · ${T('Kills')} <b data-live="kills">${fmt(t.kills)}</b></div>
       ${up}
       ${armed
-        ? `<button class="p-sell armed" data-act="sell">Confirm sell <b>+${Math.floor(t.invested * this.game.sellRatio)}${CR}</b><kbd>S</kbd></button>`
-        : `<button class="p-sell" data-act="sell">Sell <b>+${Math.floor(t.invested * this.game.sellRatio)}${CR}</b><kbd>S</kbd></button>`}`;
+        ? `<button class="p-sell armed" data-act="sell">${T('Confirm sell')} <b>+${Math.floor(t.invested * this.game.sellRatio)}${CR}</b><kbd>S</kbd></button>`
+        : `<button class="p-sell" data-act="sell">${T('Sell')} <b>+${Math.floor(t.invested * this.game.sellRatio)}${CR}</b><kbd>S</kbd></button>`}`;
     p.hidden = false;
   }
 
@@ -681,7 +683,7 @@ export class UI {
     const b = this.els.banner;
     b.classList.add('boss');
     b.style.setProperty('--bc', '#ff2a6d');
-    b.innerHTML = `<div class="b-rule"></div><div class="b-kicker">⚠ Hostile process escalated</div>
+    b.innerHTML = `<div class="b-rule"></div><div class="b-kicker">${T('⚠ Hostile process escalated')}</div>
       <div class="b-title glitch" data-text="${name}">${name}</div><div class="b-sub">${sub}</div><div class="b-rule"></div>`;
     this.bump(b, 'show');
   }
@@ -699,21 +701,23 @@ export class UI {
     let html = '';
     const stars = (n) => `<span class="stars">${[1, 2, 3].map((i) => `<i class="${i <= n ? 'on' : ''}">★</i>`).join('')}</span>`;
     const again = `<div class="ov-actions"><button class="btn-primary hudbox" data-act="restart">%s</button>
-        <button class="btn-ghost" data-act="menu">Sectors</button></div>`;
+        <button class="btn-ghost" data-act="menu">${T('Sectors')}</button></div>`;
     if (kind === 'start') {
       const { maps, records = {}, current, difficulty = 'normal', unlocked = {}, cleared = {} } = data;
       const mode = data.mode || 'campaign', endless = mode === 'endless';
       const D = DIFFICULTIES[difficulty];
       const tabs = `<div class="mode-tabs" role="tablist">${[['campaign', 'Campaign', 'Ten sectors'], ['endless', 'Endless', 'No last wave'], ['daily', 'Daily', 'Same for everyone']]
-        .map(([k, n, sub]) => `<button class="mt${k === mode ? ' on' : ''}" role="tab" aria-selected="${k === mode}" data-act="mode" data-arg="${k}"><b>${n}</b><span>${sub}</span></button>`).join('')}</div>`;
+        .map(([k, n, sub]) => `<button class="mt${k === mode ? ' on' : ''}" role="tab" aria-selected="${k === mode}" data-act="mode" data-arg="${k}"><b>${T(n)}</b><span>${T(sub)}</span></button>`).join('')}</div>`;
+      // language names stay in their own language
+      const langs = `<div class="lang-pick" role="group" aria-label="${T('Language')}">${LANGS.map((l) => `<button class="${l === lang ? 'on' : ''}" data-act="lang" data-arg="${l}" lang="${l}" title="${{ en: 'English', ru: 'Русский' }[l]}">${l.toUpperCase()}</button>`).join('')}</div>`;
       const picker = `<div class="diff-pick">
           <div class="dp-seg">${DIFFICULTY_ORDER.map((k) => `<button class="dp${k === difficulty ? ' on' : ''}" data-act="difficulty" data-arg="${k}" style="--c:${DIFFICULTIES[k].color}">${DIFFICULTIES[k].name}</button>`).join('')}</div>
           <div class="dp-desc" style="--c:${D.color}">${D.desc}</div>
         </div>`;
       const accent = (m) => (m.theme && m.theme.ambient && m.theme.ambient[0]) || '#00e5ff';
       const nDone = maps.filter((m) => cleared[m.id]).length;
-      const head = `<div class="camp-head"><span>${mode === 'daily' ? 'Daily' : endless ? 'Endless' : 'Campaign'}</span><i class="camp-bar"><i style="width:${(nDone / maps.length) * 100}%"></i></i><b>${nDone}/${maps.length} sectors secured</b>
-          <button class="lab-btn${data.labNew ? ' new' : ''}" data-act="lab"><i class="dt"></i>${data.data ?? 0} Data · Research</button>
+      const head = `<div class="camp-head"><span>${T(mode === 'daily' ? 'Daily' : endless ? 'Endless' : 'Campaign')}</span><i class="camp-bar"><i style="width:${(nDone / maps.length) * 100}%"></i></i><b>${T('{n}/{m} sectors secured', { n: nDone, m: maps.length })}</b>
+          <button class="lab-btn${data.labNew ? ' new' : ''}" data-act="lab"><i class="dt"></i>${T('{n} Data · Research', { n: fmt(data.data ?? 0) })}</button>
           <button class="lab-btn ach-btn" data-act="achievements">★ ${data.ach ? data.ach[0] : 0}/${data.ach ? data.ach[1] : 0}</button></div>`;
       let body;
       if (mode === 'daily') {
@@ -723,20 +727,20 @@ export class UI {
         body = `<div class="camp-detail daily hudbox" style="--c:${mut.color}">
           <canvas class="s-map big" data-map="${m.id}" aria-hidden="true"></canvas>
           <div class="cd-body">
-            <div class="s-top"><span class="s-name">Daily challenge</span><span class="s-diff">${d.key}</span></div>
+            <div class="s-top"><span class="s-name">${T('Daily challenge')}</span><span class="s-diff">${d.key}</span></div>
             <div class="cd-title">${m.name} · ${m.title}</div>
-            <div class="cd-rule" style="--r:${mut.color}"><b>Today's twist · ${mut.name}</b>${mut.desc}</div>
-            ${rule ? `<div class="cd-rule" style="--r:${rule.color}"><b>Rule · ${rule.name}</b>${rule.desc}</div>` : ''}
-            <div class="s-meta"><b style="color:${d.diff.color}">${d.diff.name}</b> · ${m.waves.length} waves · every tower open · research off · same cards for everyone</div>
-            <div class="s-meta">Score: kills, cleared waves, early calls, and a bonus for every Core integrity left on a win.</div>
+            <div class="cd-rule" style="--r:${mut.color}"><b>${T("Today's twist · {name}", { name: mut.name })}</b>${mut.desc}</div>
+            ${rule ? `<div class="cd-rule" style="--r:${rule.color}"><b>${T('Rule · {name}', { name: rule.name })}</b>${rule.desc}</div>` : ''}
+            <div class="s-meta"><b style="color:${d.diff.color}">${d.diff.name}</b> · ${count(m.waves.length, 'wave', 'waves')} · ${T('every tower open · research off · same cards for everyone')}</div>
+            <div class="s-meta">${T('Score: kills, cleared waves, early calls, and a bonus for every Core integrity left on a win.')}</div>
             <div class="daily-stats">
-              <div><label>Best today</label><b>${rec.best ? rec.best.toLocaleString('en-US') : '—'}</b></div>
-              <div><label>Runs today</label><b>${rec.runs}</b></div>
-              <div><label>Streak</label><b>${rec.streak} day${rec.streak === 1 ? '' : 's'}</b></div>
+              <div><label>${T('Best today')}</label><b>${rec.best ? fmt(rec.best) : '—'}</b></div>
+              <div><label>${T('Runs today')}</label><b>${rec.runs}</b></div>
+              <div><label>${T('Streak')}</label><b>${count(rec.streak, 'day', 'days')}</b></div>
             </div>
             <div class="cd-foot">
-              <span class="s-rec"><span>New challenge in ${hh}h ${String(mm).padStart(2, '0')}m</span></span>
-              <button class="btn-primary hudbox cd-go" data-act="start">${rec.runs ? 'Run it again ▸' : 'Run today ▸'}</button>
+              <span class="s-rec"><span>${T('New challenge in {h}h {m}m', { h: hh, m: String(mm).padStart(2, '0') })}</span></span>
+              <button class="btn-primary hudbox cd-go" data-act="start">${T(rec.runs ? 'Run it again ▸' : 'Run today ▸')}</button>
             </div>
           </div>
         </div>`;
@@ -746,12 +750,12 @@ export class UI {
         const nodes = maps.map((m, i) => {
           const seen = unlocked[m.id], open = endless ? eopen[m.id] : seen, rec = endless ? erec[m.id] : records[m.id];
           const cls = `sector node hudbox${m.id === current ? ' sel' : ''}${open ? '' : ' locked'}${cleared[m.id] ? ' done' : ''}`;
-          const recHtml = !open ? '<i class="lock"></i>' : endless ? (rec ? `<span class="n-wave">w${rec.wave}</span>` : '')
-            : rec && rec.stars ? stars(rec.stars) : cleared[m.id] ? '<span class="n-clear">cleared</span>' : rec ? `<span class="n-wave">w${rec.wave}</span>` : '';
-          return `<button class="${cls}" data-act="pick" data-arg="${m.id}" style="--c:${open ? accent(m) : '#3d5866'}" aria-label="${m.name} ${m.title}${open ? '' : ' (locked)'}">
+          const recHtml = !open ? '<i class="lock"></i>' : endless ? (rec ? `<span class="n-wave">${T('w{n}', { n: rec.wave })}</span>` : '')
+            : rec && rec.stars ? stars(rec.stars) : cleared[m.id] ? `<span class="n-clear">${T('cleared')}</span>` : rec ? `<span class="n-wave">${T('w{n}', { n: rec.wave })}</span>` : '';
+          return `<button class="${cls}" data-act="pick" data-arg="${m.id}" style="--c:${open ? accent(m) : '#3d5866'}" aria-label="${m.name} ${m.title}${open ? '' : ' ' + T('(locked)')}">
           <canvas class="s-map" data-map="${m.id}" aria-hidden="true"></canvas>
           <span class="n-num">${String(i + 1).padStart(2, '0')}</span>
-          <span class="n-title">${seen ? m.title : 'Locked'}</span>
+          <span class="n-title">${seen ? m.title : T('Locked')}</span>
           ${open && !endless ? `<span class="n-medals">${(data.medals?.[m.id] || []).map((x) => `<i class="${x ? 'on' : ''}"></i>`).join('')}</span>` : ''}
           <span class="n-rec">${recHtml}</span>
         </button>`;
@@ -761,86 +765,89 @@ export class UI {
         const si = maps.indexOf(sel), open = endless ? eopen[sel.id] : unlocked[sel.id], rec = endless ? erec[sel.id] : records[sel.id];
         const types = [...new Set(sel.waves.flat().map((g) => g[0]))].filter((t) => ENEMIES[t]);
         const threats = types.map((t) => `<span class="nw-item" style="--c:${ENEMIES[t].color}" title="${ENEMIES[t].trait}"><i class="ico ${t}"></i>${ENEMIES[t].plural}</span>`).join('');
-        const recHtml = endless ? (rec ? `<span>Best on ${D.name}: <b>wave ${rec.wave}</b> · ${rec.score.toLocaleString('en-US')} pts</span>` : '<span class="s-none">No Endless run on ' + D.name + '</span>')
-          : !rec ? '<span class="s-none">No record on ' + D.name + '</span>'
-          : rec.stars ? `${stars(rec.stars)}<span>Secured on ${D.name}</span>` : `<span>Best on ${D.name}: wave ${rec.wave}/${sel.waves.length}</span>`;
-        const lockHtml = endless ? `<i class="lock"></i><span>Clear ${sel.name} · ${unlocked[sel.id] ? sel.title : 'this sector'} in the campaign to open its Endless run</span>`
-          : `<i class="lock"></i><span>Clear ${maps[si - 1]?.name} · ${maps[si - 1]?.title} to unlock</span>`;
-        const meta = endless ? `${sel.paths.length} breach${sel.paths.length > 1 ? 'es' : ''} · its ${sel.waves.length} waves, then it never stops · a Leviathan every 5th wave beyond`
-          : `${sel.paths.length} breach${sel.paths.length > 1 ? 'es' : ''} · ${sel.waves.length} waves${types.includes('boss') ? ' · <b class="cd-boss">boss</b>' : ''}`;
+        const recHtml = endless ? (rec ? `<span>${T('Best on {d}: {w} · {s}', { d: D.name, w: `<b>${T('wave {n}', { n: rec.wave })}</b>`, s: count(rec.score, 'pt', 'pts') })}</span>` : `<span class="s-none">${T('No Endless run on {d}', { d: D.name })}</span>`)
+          : !rec ? `<span class="s-none">${T('No record on {d}', { d: D.name })}</span>`
+          : rec.stars ? `${stars(rec.stars)}<span>${T('Secured on {d}', { d: D.name })}</span>` : `<span>${T('Best on {d}: wave {n}/{m}', { d: D.name, n: rec.wave, m: sel.waves.length })}</span>`;
+        const lockHtml = endless ? `<i class="lock"></i><span>${T('Clear {name} · {title} in the campaign to open its Endless run', { name: sel.name, title: unlocked[sel.id] ? sel.title : T('this sector') })}</span>`
+          : `<i class="lock"></i><span>${T('Clear {name} · {title} to unlock', { name: maps[si - 1]?.name, title: maps[si - 1]?.title })}</span>`;
+        const breaches = count(sel.paths.length, 'breach', 'breaches');
+        const meta = endless ? T('{b} · its {w}, then it never stops · a Leviathan every 5th wave beyond', { b: breaches, w: count(sel.waves.length, 'wave', 'waves') })
+          : `${breaches} · ${count(sel.waves.length, 'wave', 'waves')}${types.includes('boss') ? ` · <b class="cd-boss">${T('boss')}</b>` : ''}`;
         const detail = `<div class="camp-detail hudbox${open ? '' : ' locked'}${endless ? ' endless' : ''}" style="--c:${open ? accent(sel) : '#3d5866'}">
           <canvas class="s-map big" data-map="${sel.id}" aria-hidden="true"></canvas>
           <div class="cd-body">
-            <div class="s-top"><span class="s-name">${sel.name}</span><span class="s-diff">${endless ? 'Endless' : sel.difficulty}</span></div>
-            <div class="cd-title">${unlocked[sel.id] ? sel.title : 'Locked'}</div>
-            <div class="s-desc">${endless ? 'Hold the line as long as you can. Waves keep coming, denser and tougher, until the Core falls. Score: kills, waves and early calls.' : sel.desc}</div>
-            ${sel.rule && RULES[sel.rule] ? `<div class="cd-rule" style="--r:${RULES[sel.rule].color}"><b>Rule · ${RULES[sel.rule].name}</b>${RULES[sel.rule].desc}</div>` : ''}
+            <div class="s-top"><span class="s-name">${sel.name}</span><span class="s-diff">${endless ? T('Endless') : sel.difficulty}</span></div>
+            <div class="cd-title">${unlocked[sel.id] ? sel.title : T('Locked')}</div>
+            <div class="s-desc">${endless ? T('Hold the line as long as you can. Waves keep coming, denser and tougher, until the Core falls. Score: kills, waves and early calls.') : sel.desc}</div>
+            ${sel.rule && RULES[sel.rule] ? `<div class="cd-rule" style="--r:${RULES[sel.rule].color}"><b>${T('Rule · {name}', { name: RULES[sel.rule].name })}</b>${RULES[sel.rule].desc}</div>` : ''}
             <div class="s-meta">${meta}</div>
             <div class="cd-threats">${threats}</div>
-            ${!endless && sel.medals && open ? `<div class="cd-medals">${sel.medals.map(([k, n], i) => { const got = data.medals?.[sel.id]?.[i]; return `<span class="cdm${got ? ' on' : ''}" title="${data.medalDefs[k].desc(n)}"><i></i><b>${data.medalDefs[k].name}</b> ${data.medalDefs[k].desc(n)}</span>`; }).join('')}<span class="cdm-note">Normal or harder · +15 Data each</span></div>` : ''}
-            ${endless ? '' : TOWER_ORDER.filter((t) => TOWERS[t].unlock === sel.id).map((t) => `<div class="cd-reward" style="--r:${TOWERS[t].color}">Clear to unlock · <b>${TOWERS[t].name}</b></div>`).join('')}
+            ${!endless && sel.medals && open ? `<div class="cd-medals">${sel.medals.map(([k, n], i) => { const got = data.medals?.[sel.id]?.[i]; return `<span class="cdm${got ? ' on' : ''}" title="${data.medalDefs[k].desc(n)}"><i></i><b>${data.medalDefs[k].name}</b> ${data.medalDefs[k].desc(n)}</span>`; }).join('')}<span class="cdm-note">${T('Normal or harder · +15 Data each')}</span></div>` : ''}
+            ${endless ? '' : TOWER_ORDER.filter((t) => TOWERS[t].unlock === sel.id).map((t) => `<div class="cd-reward" style="--r:${TOWERS[t].color}">${T('Clear to unlock · {name}', { name: `<b>${TOWERS[t].name}</b>` })}</div>`).join('')}
             <div class="cd-foot">
               <span class="s-rec">${open ? recHtml : lockHtml}</span>
-              ${open ? `<button class="btn-primary hudbox cd-go" data-act="start" data-arg="${sel.id}">${endless ? 'Enter the void ▸' : 'Jack in ▸'}</button>` : ''}
+              ${open ? `<button class="btn-primary hudbox cd-go" data-act="start" data-arg="${sel.id}">${T(endless ? 'Enter the void ▸' : 'Jack in ▸')}</button>` : ''}
             </div>
           </div>
         </div>`;
         body = `<div class="camp-grid">${nodes}</div>${detail}`;
       }
       html = `<div class="ov-card campaign mode-${mode}">
+        ${langs}
         <div class="ov-kicker">Pixo Arcade // Tower Defense</div>
         <h1 class="ov-title glitch" data-text="VOID//WARDENS">VOID<span class="sl">//</span>WARDENS</h1>
-        <p class="ov-tag">A breach has opened in the grid. Hostile code is pouring through. Keep it away from the Core.</p>
+        <p class="ov-tag">${T('A breach has opened in the grid. Hostile code is pouring through. Keep it away from the Core.')}</p>
         ${tabs}
         ${mode === 'daily' ? '' : picker}
         ${head}
         ${body}
         <div class="ov-help">
-          <div><b>1–7</b> Pick a tower, click an empty tile to deploy</div>
-          <div><b>Evolve</b> Every upgrade is a choice between two paths</div>
-          <div><b>Space</b> Run waves early for bonus credits</div>
+          <div><b>1–7</b> ${T('Pick a tower, click an empty tile to deploy')}</div>
+          <div><b>${T('Evolve')}</b> ${T('Every upgrade is a choice between two paths')}</div>
+          <div><b>${T('Space')}</b> ${T('Run waves early for bonus credits')}</div>
         </div></div>`;
     } else if (kind === 'pause') {
-      html = `<div class="ov-card"><div class="ov-kicker">Process suspended</div><h2 class="ov-h2 glitch" data-text="Paused">Paused</h2>
-        <button class="btn-primary hudbox" data-act="resume">Resume</button>
-        <div class="ov-actions"><button class="btn-ghost" data-act="restart">Restart</button><button class="btn-ghost" data-act="menu">Sectors</button></div>
-        <div class="diff-pick fx-pick"><div class="fx-label">Graphics <kbd>G</kbd></div>
-          <div class="dp-seg">${['auto', 'high', 'medium', 'low'].map((m) => `<button class="dp${m === data.fx ? ' on' : ''}" data-act="setFx" data-arg="${m}" style="--c:#00e5ff">${m}</button>`).join('')}</div>
-          <div class="dp-desc" style="--c:#00e5ff">${!data.webgl ? 'WebGL unavailable · bloom and post effects off' : data.fx === 'auto' ? `Adapts to your device · now ${data.tier}` : { high: 'Full resolution · bloom, lighting, reflections, lens dirt', medium: 'Lower resolution · bloom and lighting, no reflections', low: 'Base resolution · no bloom, lighting or reflections, light weather' }[data.fx]}</div>
+      html = `<div class="ov-card"><div class="ov-kicker">${T('Process suspended')}</div><h2 class="ov-h2 glitch" data-text="${T('Paused')}">${T('Paused')}</h2>
+        <button class="btn-primary hudbox" data-act="resume">${T('Resume')}</button>
+        <div class="ov-actions"><button class="btn-ghost" data-act="restart">${T('Restart')}</button><button class="btn-ghost" data-act="menu">${T('Sectors')}</button></div>
+        <div class="diff-pick fx-pick"><div class="fx-label">${T('Graphics')} <kbd>G</kbd></div>
+          <div class="dp-seg">${['auto', 'high', 'medium', 'low'].map((m) => `<button class="dp${m === data.fx ? ' on' : ''}" data-act="setFx" data-arg="${m}" style="--c:#00e5ff">${T(m)}</button>`).join('')}</div>
+          <div class="dp-desc" style="--c:#00e5ff">${T(!data.webgl ? 'WebGL unavailable · bloom and post effects off' : data.fx === 'auto' ? 'Adapts to your device · now {tier}' : { high: 'Full resolution · bloom, lighting, reflections, lens dirt', medium: 'Lower resolution · bloom and lighting, no reflections', low: 'Base resolution · no bloom, lighting or reflections, light weather' }[data.fx], { tier: T(data.tier) })}</div>
         </div>
-        <div class="comfort"><div class="fx-label">Comfort</div>
+        <div class="comfort"><div class="fx-label">${T('Comfort')}</div>
           ${[['shake', 'Screen shake'], ['flash', 'Flashes']].map(([k, label]) => {
             const v = Math.round((data.comfort?.[k] ?? 1) * 100);
-            return `<label class="slider"><span>${label}</span><input type="range" min="0" max="100" step="5" value="${v}" data-comfort="${k}"><b>${v}%</b></label>`;
+            return `<label class="slider"><span>${T(label)}</span><input type="range" min="0" max="100" step="5" value="${v}" data-comfort="${k}"><b>${v}%</b></label>`;
           }).join('')}
-          <div class="comfort-presets"><button class="btn-ghost" data-act="comfortPreset" data-arg="calm">Calm</button><button class="btn-ghost" data-act="comfortPreset" data-arg="full">Full</button></div>
+          <div class="comfort-presets"><button class="btn-ghost" data-act="comfortPreset" data-arg="calm">${T('Calm')}</button><button class="btn-ghost" data-act="comfortPreset" data-arg="full">${T('Full')}</button></div>
         </div></div>`;
     } else if (kind === 'win') {
       const nx = data.next;
-      const unlockLine = nx ? `<div class="ov-unlock${nx.fresh ? ' fresh' : ''}">${nx.fresh ? '▸ New sector unlocked' : '▸ Up next'} · <b>${nx.name} · ${nx.title}</b></div>`
-        : data.final ? '<div class="ov-unlock fresh">▸ Campaign complete · <b>the grid is secure</b></div>' : '';
-      html = `<div class="ov-card win"><div class="ov-kicker">${data.sector} · ${data.diff.name} · Breach sealed</div><h2 class="ov-h2 glitch" data-text="${data.final ? 'Kernel secured' : 'System secure'}">${data.final ? 'Kernel secured' : 'System secure'}</h2>
+      const unlockLine = nx ? `<div class="ov-unlock${nx.fresh ? ' fresh' : ''}">${T(nx.fresh ? '▸ New sector unlocked' : '▸ Up next')} · <b>${nx.name} · ${nx.title}</b></div>`
+        : data.final ? `<div class="ov-unlock fresh">${T('▸ Campaign complete')} · <b>${T('the grid is secure')}</b></div>` : '';
+      const title = T(data.final ? 'Kernel secured' : 'System secure');
+      html = `<div class="ov-card win"><div class="ov-kicker">${data.sector} · ${data.diff.name} · ${T('Breach sealed')}</div><h2 class="ov-h2 glitch" data-text="${title}">${title}</h2>
         <div class="ov-stars">${stars(data.stars)}</div>
-        <div class="ov-stats"><div><label>Core</label><b>${data.lives}/${data.maxLives}</b></div><div><label>Kills</label><b>${data.kills}</b></div><div><label>Towers</label><b>${data.towers}</b></div></div>
+        <div class="ov-stats"><div><label>${T('Core')}</label><b>${data.lives}/${data.maxLives}</b></div><div><label>${T('Kills')}</label><b>${fmt(data.kills)}</b></div><div><label>${T('Towers')}</label><b>${data.towers}</b></div></div>
         ${data.medals && data.medals.length ? `<div class="ov-medals">${data.medals.map((m) => `<span class="om${m.earned ? ' on' : ''}${m.fresh ? ' fresh' : ''}" title="${m.desc}"><i></i>${m.name}</span>`).join('')}</div>`
-          : data.diff && data.diff.name === 'Easy' ? '<div class="ov-medals note">Medals need Normal or harder</div>' : ''}
-        ${data.data ? `<div class="ov-data"><i class="dt"></i>+${data.data.earned + (data.data.medals || 0)} Data${data.data.medals ? ` <span>(${data.data.medals} from medals)</span>` : ''} <span>· ${data.data.total} total</span></div>` : ''}
+          : data.diff && data.diff === DIFFICULTIES.easy ? `<div class="ov-medals note">${T('Medals need Normal or harder')}</div>` : ''}
+        ${data.data ? `<div class="ov-data"><i class="dt"></i>${T('+{n} Data', { n: data.data.earned + (data.data.medals || 0) })}${data.data.medals ? ` <span>${T('({n} from medals)', { n: data.data.medals })}</span>` : ''} <span>${T('· {n} total', { n: fmt(data.data.total) })}</span></div>` : ''}
         ${unlockLine}
-        ${(data.newTowers || []).map((n) => `<div class="ov-unlock fresh tower">▸ New tower unlocked · <b>${n}</b></div>`).join('')}
-        ${data.endlessNew ? `<div class="ov-unlock fresh endless">▸ Endless opened · <b>${data.endlessNew}</b></div>` : ''}
-        ${nx ? `<div class="ov-actions"><button class="btn-primary hudbox" data-act="start" data-arg="${nx.id}">Next sector ▸</button>
-          <button class="btn-ghost" data-act="restart">Play again</button><button class="btn-ghost" data-act="menu">Sectors</button></div>` : again.replace('%s', 'Play again')}
-        <button class="btn-ghost share" data-act="share">Share screenshot</button></div>`;
+        ${(data.newTowers || []).map((n) => `<div class="ov-unlock fresh tower">${T('▸ New tower unlocked')} · <b>${n}</b></div>`).join('')}
+        ${data.endlessNew ? `<div class="ov-unlock fresh endless">${T('▸ Endless opened')} · <b>${data.endlessNew}</b></div>` : ''}
+        ${nx ? `<div class="ov-actions"><button class="btn-primary hudbox" data-act="start" data-arg="${nx.id}">${T('Next sector ▸')}</button>
+          <button class="btn-ghost" data-act="restart">${T('Play again')}</button><button class="btn-ghost" data-act="menu">${T('Sectors')}</button></div>` : again.replace('%s', T('Play again'))}
+        <button class="btn-ghost share" data-act="share">${T('Share screenshot')}</button></div>`;
     } else if (kind === 'ach') {
       const done = data.list.filter((a) => a.done).length;
-      html = `<div class="ov-card achs"><div class="ov-kicker">Warden service record</div>
-        <h2 class="ov-h2">Achievements</h2>
-        <div class="lab-bal"><b>${done}</b>/ ${data.list.length} unlocked</div>
+      html = `<div class="ov-card achs"><div class="ov-kicker">${T('Warden service record')}</div>
+        <h2 class="ov-h2">${T('Achievements')}</h2>
+        <div class="lab-bal">${T('{done}/ {total} unlocked', { done: `<b>${done}</b>`, total: data.list.length })}</div>
         <div class="ach-grid">${data.list.map((a) => `<div class="ach${a.done ? ' done' : ''}">
           <span class="ach-ic">${achIcon(a.icon)}</span>
           <span class="ach-t"><b>${a.name}</b><span>${a.desc}</span>${a.goal && !a.done ? `<i class="ach-bar"><i style="width:${(a.prog / a.goal) * 100}%"></i></i><em>${a.prog} / ${a.goal}</em>` : ''}</span>
         </div>`).join('')}</div>
-        <button class="btn-ghost" data-act="labBack">◂ Back to campaign</button></div>`;
+        <button class="btn-ghost" data-act="labBack">${T('◂ Back to campaign')}</button></div>`;
     } else if (kind === 'lab') {
       const own = new Set(data.owned || []);
       const cols = RESEARCH.map((b) => `<div class="lab-col" style="--c:${b.color}"><div class="lab-branch">${b.branch}</div>
@@ -849,36 +856,38 @@ export class UI {
           const st = has ? 'owned' : !prev ? 'locked' : afford ? 'ready' : 'poor';
           return `<button class="lab-node hudbox ${st}${n.id === data.fresh ? ' fresh' : ''}" data-act="buy" data-arg="${n.id}" ${has || st === 'locked' ? 'disabled' : ''}>
             <span class="ln-tier">T${i + 1}</span><span class="ln-name">${n.name}</span><span class="ln-desc">${n.desc}</span>
-            <span class="ln-cost">${has ? '✓ Installed' : st === 'locked' ? 'Requires ' + b.nodes[i - 1].name : `<i class="dt"></i>${n.cost}`}</span></button>`;
+            <span class="ln-cost">${has ? T('✓ Installed') : st === 'locked' ? T('Requires {name}', { name: b.nodes[i - 1].name }) : `<i class="dt"></i>${n.cost}`}</span></button>`;
         }).join('<i class="lab-link"></i>')}</div>`).join('');
-      html = `<div class="ov-card lab"><div class="ov-kicker">Warden research lab</div>
-        <h2 class="ov-h2">Research</h2>
-        <div class="lab-bal"><i class="dt"></i><b>${data.data}</b> Data <span>· earned every run — more for waves cleared, wins, stars and harder difficulties</span></div>
+      html = `<div class="ov-card lab"><div class="ov-kicker">${T('Warden research lab')}</div>
+        <h2 class="ov-h2">${T('Research')}</h2>
+        <div class="lab-bal"><i class="dt"></i><b>${fmt(data.data)}</b> ${T('Data')} <span>${T('· earned every run — more for waves cleared, wins, stars and harder difficulties')}</span></div>
         <div class="lab-grid">${cols}</div>
-        <button class="btn-ghost" data-act="labBack">◂ Back to campaign</button></div>`;
+        <button class="btn-ghost" data-act="labBack">${T('◂ Back to campaign')}</button></div>`;
     } else if (kind === 'endless') {
-      html = `<div class="ov-card lose endless-res"><div class="ov-kicker">Endless · ${data.sector} · ${data.title} · ${data.diff.name}</div>
-        <h2 class="ov-h2 glitch" data-text="Signal lost">Signal lost</h2>
-        <div class="ov-score"><label>Fell on</label><b>Wave ${data.wave}</b>${data.better ? '<em>New best</em>' : data.prev ? `<span>Best: wave ${data.prev.wave}</span>` : '<em>First run</em>'}</div>
-        <div class="ov-stats"><div><label>Score</label><b>${data.score.toLocaleString('en-US')}</b></div><div><label>Kills</label><b>${data.kills}</b></div><div><label>Past the campaign</label><b>${data.beyond} wave${data.beyond === 1 ? '' : 's'}</b></div></div>
-        ${data.data ? `<div class="ov-data"><i class="dt"></i>+${data.data.earned} Data <span>· ${data.data.total} total</span></div>` : ''}
-        ${again.replace('%s', 'Go again')}
-        <button class="btn-ghost share" data-act="share">Share screenshot</button></div>`;
+      const dataLine = data.data ? `<div class="ov-data"><i class="dt"></i>${T('+{n} Data', { n: data.data.earned })} <span>${T('· {n} total', { n: fmt(data.data.total) })}</span></div>` : '';
+      html = `<div class="ov-card lose endless-res"><div class="ov-kicker">${T('Endless')} · ${data.sector} · ${data.title} · ${data.diff.name}</div>
+        <h2 class="ov-h2 glitch" data-text="${T('Signal lost')}">${T('Signal lost')}</h2>
+        <div class="ov-score"><label>${T('Fell on')}</label><b>${T('Wave {n}', { n: data.wave })}</b>${data.better ? `<em>${T('New best')}</em>` : data.prev ? `<span>${T('Best: wave {n}', { n: data.prev.wave })}</span>` : `<em>${T('First run')}</em>`}</div>
+        <div class="ov-stats"><div><label>${T('Score')}</label><b>${fmt(data.score)}</b></div><div><label>${T('Kills')}</label><b>${fmt(data.kills)}</b></div><div><label>${T('Past the campaign')}</label><b>${count(data.beyond, 'wave', 'waves')}</b></div></div>
+        ${dataLine}
+        ${again.replace('%s', T('Go again'))}
+        <button class="btn-ghost share" data-act="share">${T('Share screenshot')}</button></div>`;
     } else if (kind === 'daily') {
-      html = `<div class="ov-card ${data.won ? 'win' : 'lose'} daily-res" style="--mc:${data.mut.color}"><div class="ov-kicker">Daily · ${data.day} · ${data.sector} · ${data.title}</div>
-        <h2 class="ov-h2 glitch" data-text="${data.won ? 'Daily secured' : 'Daily breached'}">${data.won ? 'Daily secured' : 'Daily breached'}</h2>
-        <div class="ov-score"><label>Score</label><b>${data.score.toLocaleString('en-US')}</b>${data.newBest ? '<em>New best today</em>' : data.runs > 1 ? `<span>Best today: ${data.best.toLocaleString('en-US')}</span>` : ''}</div>
+      const title = T(data.won ? 'Daily secured' : 'Daily breached');
+      html = `<div class="ov-card ${data.won ? 'win' : 'lose'} daily-res" style="--mc:${data.mut.color}"><div class="ov-kicker">${T('Daily')} · ${data.day} · ${data.sector} · ${data.title}</div>
+        <h2 class="ov-h2 glitch" data-text="${title}">${title}</h2>
+        <div class="ov-score"><label>${T('Score')}</label><b>${fmt(data.score)}</b>${data.newBest ? `<em>${T('New best today')}</em>` : data.runs > 1 ? `<span>${T('Best today: {n}', { n: fmt(data.best) })}</span>` : ''}</div>
         ${data.won ? `<div class="ov-stars">${stars(data.stars)}</div>` : ''}
-        <div class="ov-stats"><div><label>${data.won ? 'Core' : 'Reached'}</label><b>${data.won ? `${data.lives}/${data.maxLives}` : `Wave ${data.wave}`}</b></div><div><label>Kills</label><b>${data.kills}</b></div><div><label>Streak</label><b>${data.streak} day${data.streak === 1 ? '' : 's'}</b></div></div>
-        <div class="ov-unlock" style="--r:${data.mut.color}">Twist · <b>${data.mut.name}</b></div>
-        ${data.data ? `<div class="ov-data"><i class="dt"></i>+${data.data.earned} Data <span>· ${data.data.total} total</span></div>` : ''}
-        ${again.replace('%s', 'Run it again')}
-        <button class="btn-ghost share" data-act="share">Share score</button></div>`;
+        <div class="ov-stats"><div><label>${T(data.won ? 'Core' : 'Reached')}</label><b>${data.won ? `${data.lives}/${data.maxLives}` : T('Wave {n}', { n: data.wave })}</b></div><div><label>${T('Kills')}</label><b>${fmt(data.kills)}</b></div><div><label>${T('Streak')}</label><b>${count(data.streak, 'day', 'days')}</b></div></div>
+        <div class="ov-unlock" style="--r:${data.mut.color}">${T('Twist')} · <b>${data.mut.name}</b></div>
+        ${data.data ? `<div class="ov-data"><i class="dt"></i>${T('+{n} Data', { n: data.data.earned })} <span>${T('· {n} total', { n: fmt(data.data.total) })}</span></div>` : ''}
+        ${again.replace('%s', T('Run it again'))}
+        <button class="btn-ghost share" data-act="share">${T('Share score')}</button></div>`;
     } else if (kind === 'lose') {
-      html = `<div class="ov-card lose"><div class="ov-kicker">${data.sector} · ${data.diff.name} · Core compromised</div><h2 class="ov-h2 glitch" data-text="System breached">System breached</h2>
-        <div class="ov-stats"><div><label>Reached</label><b>Wave ${data.wave}</b></div><div><label>Kills</label><b>${data.kills}</b></div></div>
-        ${data.data ? `<div class="ov-data"><i class="dt"></i>+${data.data.earned} Data <span>· ${data.data.total} total</span></div>` : ''}
-        ${again.replace('%s', 'Reboot')}</div>`;
+      html = `<div class="ov-card lose"><div class="ov-kicker">${data.sector} · ${data.diff.name} · ${T('Core compromised')}</div><h2 class="ov-h2 glitch" data-text="${T('System breached')}">${T('System breached')}</h2>
+        <div class="ov-stats"><div><label>${T('Reached')}</label><b>${T('Wave {n}', { n: data.wave })}</b></div><div><label>${T('Kills')}</label><b>${fmt(data.kills)}</b></div></div>
+        ${data.data ? `<div class="ov-data"><i class="dt"></i>${T('+{n} Data', { n: data.data.earned })} <span>${T('· {n} total', { n: fmt(data.data.total) })}</span></div>` : ''}
+        ${again.replace('%s', T('Reboot'))}</div>`;
     }
     o.innerHTML = html;
     o.className = 'overlay show ' + kind;

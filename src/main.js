@@ -9,6 +9,9 @@ import { Music } from './music.js';
 import { MAPS, mapById } from './maps.js';
 import { runIntro } from './intro.js';
 import { dailyFor, dayKey, prevDayKey } from './modes.js';
+import { t as T, fmt, count, setLang, translatePage } from './i18n.js';
+
+translatePage();
 
 const canvas = document.getElementById('game');
 const viewportEl = document.getElementById('viewport');
@@ -234,7 +237,7 @@ function shareCard(shot, r) {
   }
   const cy = by + (H - by) / 2 + 4;
   g.textBaseline = 'middle';
-  g.font = '700 46px "Chakra Petch", sans-serif'; g.textAlign = 'left';
+  g.font = '700 46px "Chakra Petch", "Exo 2", sans-serif'; g.textAlign = 'left';
   g.fillStyle = '#eafcff'; g.shadowColor = '#00e5ff'; g.shadowBlur = 18;
   g.fillText('VOID', pad + 6, cy);
   let x = pad + 6 + g.measureText('VOID').width;
@@ -247,7 +250,7 @@ function shareCard(shot, r) {
   g.fillStyle = r.color || '#ffb800';
   g.fillText(r.bottom.toUpperCase(), W / 2, cy + 18);
   g.textAlign = 'right';
-  g.font = `700 ${r.badge.length > 8 ? 36 : 44}px "Chakra Petch", sans-serif`;
+  g.font = `700 ${r.badge.length > 8 ? 36 : 44}px "Chakra Petch", "Exo 2", sans-serif`;
   g.fillStyle = '#ffb800'; g.shadowColor = '#ffb800'; g.shadowBlur = 14;
   g.fillText(r.badge, W - pad - 6, cy);
   g.shadowBlur = 0;
@@ -398,7 +401,7 @@ const ctl = {
   },
   cycleFx() {
     ctl.setFx(FX_MODES[(FX_MODES.indexOf(renderer.mode) + 1) % FX_MODES.length]);
-    if (!view.paused) ui.banner('Graphics · ' + renderer.mode, renderer.mode === 'auto' ? 'adapts to your device' : '', '#00e5ff');
+    if (!view.paused) ui.banner(T('Graphics · {mode}', { mode: T(renderer.mode) }), renderer.mode === 'auto' ? T('adapts to your device') : '', '#00e5ff');
   },
   toggleMute() {
     view.muted = !view.muted;
@@ -461,9 +464,15 @@ const ctl = {
     ui.setRule(rule);
     ui.hideCards();
     ui.renderPicked([]);
-    if (game.mode === 'daily') ui.banner(`Daily · ${mapDef.title}`, `Twist: ${game.mut.name} — ${game.mut.desc}`, game.mut.color);
-    else ui.banner(`${game.endless ? 'Endless · ' : ''}${mapDef.name} · ${mapDef.title}`, `${game.diff.name} · ${rule ? `Rule: ${rule.name} — ${rule.desc}` : game.endless ? 'The waves never stop · how far can you hold?' : 'Deploy towers, then run wave 1'}`, game.diff.color);
+    if (game.mode === 'daily') ui.banner(T('Daily · {title}', { title: mapDef.title }), T('Twist: {name} — {desc}', game.mut), game.mut.color);
+    else {
+      const where = `${mapDef.name} · ${mapDef.title}`;
+      const how = rule ? T('Rule: {name} — {desc}', rule) : T(game.endless ? 'The waves never stop · how far can you hold?' : 'Deploy towers, then run wave 1');
+      ui.banner(game.endless ? T('Endless · {name}', { name: where }) : where, `${game.diff.name} · ${how}`, game.diff.color);
+    }
   },
+  // language (start screen only: switching reloads the page)
+  lang(l) { if (!view.started) setLang(l); },
   // pick a difficulty on the start screen
   difficulty(key) {
     if (view.started || !DIFFICULTIES[key] || (key === menuDifficulty() && key === game.difficulty)) return;
@@ -519,7 +528,7 @@ game.on('sfx', (n) => (typeof n === 'string' ? sfx.play(n) : sfx.play(n.name, n.
 game.on('boss', (e) => {
   slowMo(0.2, 2.6);
   renderer.cinematic(e.x, e.y, 2.8);
-  ui.bossCard(e.def.name, 'Class-Ω threat · breach integrity failing');
+  ui.bossCard(e.def.name, T('Class-Ω threat · breach integrity failing'));
   sfx.play('siren');
 });
 ui.onCoin = () => sfx.play('coin');
@@ -535,7 +544,7 @@ game.on('bossDown', () => { game.run.bosses = (game.run.bosses || 0) + 1; checkA
 game.on('evolved', () => checkAchievements());
 game.on('purged', () => checkAchievements());
 game.on('picked', () => checkAchievements());
-game.on('failsafe', () => { ui.banner('Failsafe engaged', 'Core held at 1 · all malware stunned', '#00e5ff'); haptic([60, 40, 60]); });
+game.on('failsafe', () => { ui.banner(T('Failsafe engaged'), T('Core held at 1 · all malware stunned'), '#00e5ff'); haptic([60, 40, 60]); });
 
 // phone vibration on the big hits (Android; iOS ignores it), off when shake comfort is 0
 const haptic = (pattern) => {
@@ -553,16 +562,17 @@ document.addEventListener('pointerover', (ev) => {
 game.on('wave', (w) => {
   const final = w === game.lastWave;
   const bosses = game.waves[w - 1].filter((g) => g[0] === 'boss').reduce((n, g) => n + g[1], 0);
-  const sub = bosses > 1 ? `${bosses} Leviathans detected` : bosses ? 'Leviathan.exe detected' : describeWave(game, w) + ' inbound';
+  const sub = bosses > 1 ? T('{n} Leviathans detected', { n: bosses }) : bosses ? T('Leviathan.exe detected') : T('{list} inbound', { list: describeWave(game, w) });
   const beyond = game.endless && w > game.totalWaves; // past the sector's own waves
-  ui.banner(final ? 'Final wave' : w === game.totalWaves + 1 && game.endless ? 'Into the void' : `Wave ${String(w).padStart(2, '0')}`,
-    w === game.totalWaves + 1 && game.endless ? 'Past the last known wave · it only gets worse' : sub, final ? '#ff2a6d' : beyond ? '#b967ff' : '#00e5ff');
+  const into = w === game.totalWaves + 1 && game.endless;
+  ui.banner(final ? T('Final wave') : into ? T('Into the void') : T('Wave {n}', { n: String(w).padStart(2, '0') }),
+    into ? T('Past the last known wave · it only gets worse') : sub, final ? '#ff2a6d' : beyond ? '#b967ff' : '#00e5ff');
 });
-game.on('cleared', ({ bonus }) => ui.banner('Wave purged', `+${bonus} credits`, '#3dff9e'));
+game.on('cleared', ({ bonus }) => ui.banner(T('Wave purged'), '+' + count(bonus, 'credit', 'credits'), '#3dff9e'));
 game.on('bossDown', (e) => {
   slowMo(0.3, 1.1);
   if (e) renderer.focus(e.x, e.y, 0.14, 1.3);
-  setTimeout(() => ui.banner('Leviathan.exe terminated', '', '#ffb800'), 1200);
+  setTimeout(() => ui.banner(T('Leviathan.exe terminated'), '', '#ffb800'), 1200);
 });
 // the kill that clears a wave lands in slow motion with a push-in on the target
 game.on('finalKill', (e) => {
@@ -575,7 +585,7 @@ game.on('reward', ({ x, y, amount }) => {
   ui.flyCredits(r.left + (x / WORLD_W) * r.width, r.top + (y / WORLD_H) * r.height, amount);
 });
 let lastWin = null;
-const fmtN = (n) => Math.round(n).toLocaleString('en-US');
+const fmtN = fmt;
 // Daily result (win or loss): score, today's best, streak, Data
 function finishDaily(won) {
   const stars = won ? starsFor(game.lives, game.maxLives) : 0;
@@ -586,23 +596,23 @@ function finishDaily(won) {
   lastWin = {
     won, day: d.key, score: game.score, best: rec.best, newBest: rec.newBest && rec.runs > 1, runs: rec.runs, streak: rec.streak, stars,
     wave: game.wave, lives: game.lives, maxLives: game.maxLives, kills: game.kills, sector: mapDef.name, title: mapDef.title, mut: game.mut, data,
-    share: { top: `Daily · ${d.key} · ${mapDef.title}`, bottom: `${game.mut.name} · ${won ? `core ${game.lives}/${game.maxLives}` : `fell on wave ${game.wave}`} · ${game.kills} kills`,
-      color: game.mut.color, badge: fmtN(game.score), file: `daily-${d.key}`, text: `Void Wardens daily ${d.key}: ${fmtN(game.score)} points` },
+    share: { top: T('Daily · {key} · {title}', { key: d.key, title: mapDef.title }), bottom: `${game.mut.name} · ${won ? T('core {l}/{m}', { l: game.lives, m: game.maxLives }) : T('fell on wave {n}', { n: game.wave })} · ${count(game.kills, 'kill', 'kills')}`,
+      color: game.mut.color, badge: fmtN(game.score), file: `daily-${d.key}`, text: T('Void Wardens daily {key}: {s}', { key: d.key, s: count(game.score, 'point', 'points') }) },
   };
   setTimeout(() => ui.showOverlay('daily', lastWin), 1800);
 }
 // Endless result: the run always ends in a breach
 function finishEndless() {
   const { prev, better } = saveEndless({ wave: game.wave, score: game.score, kills: game.kills });
-  pixoRun('run-end', { score: Math.round(game.score), wave: game.wave, detail: { sector: mapDef.name, kills: game.kills } });
+  pixoRun('run-end', { score: Math.round(game.score), wave: game.wave, detail: { sector: 'Sector ' + mapDef.id.slice(-2), kills: game.kills } }); // English on every board, whatever the game's language
   const data = payData(false);
   commitRun({ won: false, endlessWave: game.wave });
   setTimeout(() => checkAchievements(), 2300);
   lastWin = {
     wave: game.wave, score: game.score, kills: game.kills, sector: mapDef.name, title: mapDef.title, diff: game.diff, data,
     beyond: Math.max(0, game.wave - 1 - game.totalWaves), prev, better: better && !!prev,
-    share: { top: `Endless · ${mapDef.name} · ${mapDef.title}`, bottom: `${game.diff.name} · ${fmtN(game.score)} points · ${game.kills} kills`,
-      color: game.diff.color, badge: `WAVE ${game.wave}`, file: `endless-${mapDef.id}-${game.difficulty}`, text: `Void Wardens endless: wave ${game.wave} on ${mapDef.title}` },
+    share: { top: T('Endless · {name} · {title}', mapDef), bottom: `${game.diff.name} · ${count(game.score, 'point', 'points')} · ${count(game.kills, 'kill', 'kills')}`,
+      color: game.diff.color, badge: T('WAVE {n}', { n: game.wave }), file: `endless-${mapDef.id}-${game.difficulty}`, text: T('Void Wardens endless: wave {n} on {title}', { n: game.wave, title: mapDef.title }) },
   };
   setTimeout(() => ui.showOverlay('endless', lastWin), 1800);
 }
@@ -623,8 +633,8 @@ game.on('win', () => {
     newTowers,
     final: !next,
     endlessNew: wasCleared ? null : mapDef.title,
-    share: { top: `${mapDef.name} · ${mapDef.title}`, bottom: `${game.diff.name} · core ${game.lives}/${game.maxLives} · ${game.kills} kills`, color: game.diff.color,
-      badge: '★'.repeat(stars) + '☆'.repeat(3 - stars), file: `${mapDef.id}-${game.difficulty}`, text: `${mapDef.name} cleared on ${game.diff.name} — ${'★'.repeat(stars)}` },
+    share: { top: `${mapDef.name} · ${mapDef.title}`, bottom: `${game.diff.name} · ${T('core {l}/{m}', { l: game.lives, m: game.maxLives })} · ${count(game.kills, 'kill', 'kills')}`, color: game.diff.color,
+      badge: '★'.repeat(stars) + '☆'.repeat(3 - stars), file: `${mapDef.id}-${game.difficulty}`, text: T('{name} cleared on {diff} — {stars}', { name: mapDef.name, diff: game.diff.name, stars: '★'.repeat(stars) }) },
   };
   if (next) view.menuSel = next.id;
   lastWin.medals = awardMedals();
@@ -716,7 +726,10 @@ window.addEventListener('keydown', (ev) => {
     const c = parseInt(ev.key, 10);
     if (c >= 1 && c <= game.offer.length) { ctl.chooseCard(c - 1); return; }
   }
-  const k = ev.key.toLowerCase();
+  // hotkeys follow the key's printed letter, but a non-Latin layout (e.g. Russian ЙЦУКЕН) falls
+  // back to the physical key, so Q/E/S/T/Z/X… still work without switching layouts
+  let k = ev.key.toLowerCase();
+  if (/^[^\x00-\x7f]$/.test(k) && /^Key[A-Z]$/.test(ev.code)) k = ev.code.slice(3).toLowerCase();
   if (!view.started) { if (k === 'enter' || k === ' ') { ev.preventDefault(); ctl.start(); } return; }
   if (k === 'p' || k === 'escape' && view.paused) { ctl.togglePause(); return; }
   if (k === 'g') { ctl.cycleFx(); return; }

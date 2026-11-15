@@ -7,6 +7,7 @@ import {
   MUTATORS, SCORE,
 } from './config.js';
 import { FX } from './fx.js';
+import { t as T } from './i18n.js';
 import { endlessWave, mulberry32 } from './modes.js';
 
 const TAU = Math.PI * 2;
@@ -206,7 +207,7 @@ export class Game {
       const bonus = Math.min(50, Math.floor(this.credits * this.mods.interest));
       if (bonus > 0) {
         this.credits += bonus;
-        this.fx.text(this.map.core.x, this.map.core.y - 54, `+${bonus} interest`, '#ffb800', 13);
+        this.fx.text(this.map.core.x, this.map.core.y - 54, T('+{n} interest', { n: bonus }), '#ffb800', 13);
       }
     }
     this.wave++;
@@ -1087,7 +1088,7 @@ export class Game {
           const d = s.execute && tg.def.boss ? dmg * 1.5 : dmg;
           this.hurt(tg, d, t, s.pierceArmor);
           if (!tg.dead && s.execute && !tg.def.boss && tg.hp / tg.maxHp <= s.execute) {
-            fx.text(tg.x, tg.y - tg.radius - 10, 'EXECUTE', s.color, 11);
+            fx.text(tg.x, tg.y - tg.radius - 10, T('EXECUTE'), s.color, 11);
             this.hurt(tg, tg.hp + 1, t, true, true);
           }
           if (s.stunChance) this.applyStatus(tg, s);

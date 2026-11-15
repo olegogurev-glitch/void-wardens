@@ -230,6 +230,16 @@ The following appear in Sector 02. Each one asks for a different answer:
 - **Rootkit**: cloaked, so towers can't aim at it. **ICE Node** pulses reveal it for 8s, and any hit exposes it briefly. Splash and lightning still hit it.
 - **Patcher**: every 2s it heals nearby malware by 6% of their max HP (capped at 30). Kill it first; the **Strong** or **Last** targeting modes help.
 
+## Language
+
+The game is in **English** and **Russian**. `?lang=ru` / `?lang=en` picks one for a visit (the Pixo site starts games this way, matching the site language). Otherwise the **EN · RU** switch at the top right of the start screen decides, and it's remembered in the browser (`voidwardens.lang`). Without either, the game follows the Pixo site's own choice (`pixo-lang`, when it's served from the same origin) and falls back to English.
+
+Everything lives in `src/i18n.js`. English is the source text: UI code passes its strings through `t()` (`t('Wave {n}', { n: 3 })`), which looks them up in the Russian table and falls back to the English text. Game data — towers and their upgrades, malware, sectors, rules, twists, cards, research, medals, achievements — is translated in place by id when the module loads, so code that shows a name needs no change. Russian counts use proper plurals (`count()`: 1 волна, 2 волны, 5 волн; malware nouns via `enemyNoun()`).
+
+**Adding a string:** wrap it in `t()` and add the English → Russian line to `RU` in `src/i18n.js`. **Adding content** (a tower, card, sector…): add its Russian name and description under `RU_DATA` by id; anything missing just shows in English.
+
+Cyrillic display text uses **Exo 2** (Chakra Petch has no Cyrillic); the font stack falls back to it per glyph, so Latin text and the logo stay in Chakra Petch. Hotkeys work on a Russian keyboard layout too (they fall back to the physical key).
+
 ## Code map
 
 ```
@@ -243,6 +253,7 @@ src/modes.js      Endless wave generator, Daily seed (sector + twist), seeded PR
 src/fx.js         particle / ring / beam / lightning state
 src/render.js     procedural canvas art (palette in PAL at the top): grid, bus, towers, enemies, effects
 src/ui.js         DOM HUD, dock, evolution panel, banners
+src/i18n.js       language pick, t() and the Russian translation (UI strings + game data)
 src/audio.js      WebAudio-synthesized sound effects
 src/music.js      adaptive procedural synthwave soundtrack
 tools/sim.mjs     headless balance simulator (bots play the real logic)

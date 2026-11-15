@@ -5,6 +5,8 @@
 // keep audio locked until a gesture, so while it's locked the first tap/key only turns sound
 // on (with a "tap for sound" badge), and later ones fast-forward.
 
+import { t } from './i18n.js';
+
 const LINES = [
   { t: 'boot core.sys', st: 'OK', c: 'ok' },
   { t: 'link data bus [01][02]', st: 'OK', c: 'ok' },
@@ -16,6 +18,9 @@ const LINES = [
   { t: 'warden protocol', st: 'STANDING BY', c: 'info', pause: 300 },
 ];
 
+// shown in the game's language; `st: 'count'` stays a marker for the ticking counter
+for (const L of LINES) { L.t = t(L.t); if (L.st && L.st !== 'count' && L.st !== 'OK') L.st = t(L.st); }
+
 const STATUS_SND = { ok: 'ok', warn: 'warn', alert: 'alert', info: 'info' };
 
 const esc = (s) => s.replace(/[&<>]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[ch]);
@@ -24,16 +29,16 @@ export function runIntro({ onDeploy, reduced = false, sfx = null }) {
   const root = document.createElement('div');
   root.className = 'boot';
   root.setAttribute('role', 'dialog');
-  root.setAttribute('aria-label', 'Breach alert');
+  root.setAttribute('aria-label', t('Breach alert'));
   root.innerHTML = `
     <div class="boot-frame">
-      <div class="boot-head"><span class="boot-mark"></span>PIXO//SYS <i>·</i> GRID MONITOR <b>v4.17</b><span class="boot-snd" hidden>♪ TAP FOR SOUND</span><span class="boot-clock"></span></div>
+      <div class="boot-head"><span class="boot-mark"></span>PIXO//SYS <i>·</i> ${t('GRID MONITOR')} <b>v4.17</b><span class="boot-snd" hidden>${t('♪ TAP FOR SOUND')}</span><span class="boot-clock"></span></div>
       <div class="boot-log" aria-live="polite"></div>
-      <div class="boot-threat"><span>THREAT</span><i class="boot-bar"><i></i></i><b>0%</b></div>
+      <div class="boot-threat"><span>${t('THREAT')}</span><i class="boot-bar"><i></i></i><b>0%</b></div>
       <div class="boot-ask" hidden>
-        <div class="boot-q">&gt; DEPLOY THE PROTECTION?<span class="boot-cursor"></span></div>
-        <button class="boot-yes" type="button">YES</button>
-        <div class="boot-hint">Enter ↵ · goes fullscreen, landscape</div>
+        <div class="boot-q">${esc(t('> DEPLOY THE PROTECTION?'))}<span class="boot-cursor"></span></div>
+        <button class="boot-yes" type="button">${t('YES')}</button>
+        <div class="boot-hint">${t('Enter ↵ · goes fullscreen, landscape')}</div>
       </div>
     </div>`;
   document.body.appendChild(root);
@@ -91,7 +96,7 @@ export function runIntro({ onDeploy, reduced = false, sfx = null }) {
       if (L.st === 'count') {
         // signature count ticks up
         for (let n = 40; n < 318 && !skip; n += 23) { st.textContent = n + ' ↑'; S('blip'); await wait(28); }
-        st.textContent = '318 AND RISING';
+        st.textContent = t('{n} AND RISING', { n: 318 });
       } else st.textContent = L.st;
     }
     S(L.snd || STATUS_SND[L.c]);
@@ -138,7 +143,7 @@ export function runIntro({ onDeploy, reduced = false, sfx = null }) {
     sndBadge.hidden = true;
     const row = document.createElement('div');
     row.className = 'ln ok';
-    row.innerHTML = `<span class="ts">${stamp()}</span><span class="tx">&gt; warden protocol</span><span class="lead"></span><span class="st">${esc('DEPLOYED')}</span>`;
+    row.innerHTML = `<span class="ts">${stamp()}</span><span class="tx">&gt; ${esc(t('warden protocol'))}</span><span class="lead"></span><span class="st">${esc(t('DEPLOYED'))}</span>`;
     log.appendChild(row);
     ask.hidden = true;
     root.classList.add('out');
@@ -150,7 +155,7 @@ export function runIntro({ onDeploy, reduced = false, sfx = null }) {
   function onKey(ev) {
     ev.stopPropagation(); // the game underneath must not see keys while the console is up
     if (ev.repeat) return;
-    if (!ask.hidden && (ev.key === 'Enter' || ev.key === ' ' || ev.key.toLowerCase() === 'y')) { ev.preventDefault(); deploy(); return; }
+    if (!ask.hidden && (ev.key === 'Enter' || ev.key === ' ' || ['y', 'д', 'н'].includes(ev.key.toLowerCase()))) { ev.preventDefault(); deploy(); return; }
     if (locked()) { sfx.unlock(); return; }
     fastForward();
   }
