@@ -87,6 +87,14 @@ const menuData = () => {
 // the difficulty picked on the start screen (the Daily plays its own fixed one meanwhile)
 const menuDifficulty = () => (DIFFICULTIES[store.get('difficulty')] ? store.get('difficulty') : 'normal');
 
+// ── Pixo (pixoarcade.com) runs the game in a frame and puts Endless runs on its leaderboards
+// (one board per difficulty): tell it when a run starts and ends. Does nothing when the game runs
+// on its own.
+function pixoRun(type, data) {
+  if (window.parent === window) return;
+  try { window.parent.postMessage({ pixo: type, board: `endless-${game.difficulty}`, ...data }, location.origin); } catch (e) { /* not hosted */ }
+}
+
 // ── Endless: best wave (then score) per sector and difficulty ──
 const endlessKey = (id, diff) => `endless.${id}.${diff}`;
 const endlessRecords = (diff = menuDifficulty()) => Object.fromEntries(MAPS.map((m) => [m.id, readJSON(endlessKey(m.id, diff), null)]).filter(([, r]) => r));
@@ -444,6 +452,7 @@ const ctl = {
     view.placing = null; view.selected = null; view.previewStats = null; view.paused = false;
     ui.els.pause.classList.remove('on');
     view.started = true;
+    if (game.endless) pixoRun('run-start');
     ui.hideOverlay();
     renderer.transition('power');
     sfx.setPaused(false);
@@ -585,6 +594,7 @@ function finishDaily(won) {
 // Endless result: the run always ends in a breach
 function finishEndless() {
   const { prev, better } = saveEndless({ wave: game.wave, score: game.score, kills: game.kills });
+  pixoRun('run-end', { score: Math.round(game.score), wave: game.wave, detail: { sector: mapDef.name, kills: game.kills } });
   const data = payData(false);
   commitRun({ won: false, endlessWave: game.wave });
   setTimeout(() => checkAchievements(), 2300);
