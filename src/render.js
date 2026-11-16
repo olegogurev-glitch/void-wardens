@@ -992,9 +992,11 @@ export class Renderer {
     stroke(35, rgba(G, 0.85));
     stroke(32, '#08131d');
     stroke(32, rgba(G, 0.03 / paths.length));
-    // lane ticks along both edges (skipping positions inside another path's bus)
+    // lane ticks along both edges (skipping positions inside another stretch of bus:
+    // another path's, or the same path where it crosses itself)
     b.strokeStyle = rgba(G, 0.28); b.lineWidth = 1;
-    const onOtherBus = (x, y, self) => paths.some((p) => p !== self && p.segs.some((s) => {
+    const onOtherBus = (x, y, self) => paths.some((p) => p.segs.some((s) => {
+      if (s === self) return false;
       const px = x - s.x0, py = y - s.y0, along = px * s.ux + py * s.uy;
       return along >= -17 && along <= s.len + 17 && Math.abs(px * -s.uy + py * s.ux) <= 17;
     }));
@@ -1004,7 +1006,7 @@ export class Renderer {
         const big = Math.round(d / 20) % 2 === 0;
         for (const side of [-1, 1]) {
           const o1 = side * 15, o2 = side * (big ? 11 : 13);
-          if (paths.length > 1 && onOtherBus(x + px * o1, y + py * o1, path)) continue;
+          if (onOtherBus(x + px * o1, y + py * o1, s)) continue;
           b.beginPath(); b.moveTo(x + px * o1, y + py * o1); b.lineTo(x + px * o2, y + py * o2); b.stroke();
         }
       }

@@ -2,7 +2,8 @@
 //  Sectors (maps): routes from breach(es) to the Core + their waves.
 //
 //  paths: one waypoint list per breach, in tile coordinates. Every path ends at
-//         the same Core tile; paths may merge and share a trunk line.
+//         the same Core tile; paths may merge and share a trunk line, split again,
+//         and cross each other or themselves. Every segment is horizontal or vertical.
 //  waves: groups of [enemyType, count, spawnInterval, startDelay, path?]
 //         path = 0 | 1 | 2 | 'alt' (round-robin over breaches). Defaults to 0.
 //  medals: three [medalType, param?] challenges (see MEDALS in src/config.js)
@@ -19,8 +20,12 @@
 //  before it has been cleared on any difficulty.
 // ─────────────────────────────────────────────────────────────
 
-const TRUNK_02 = [[16, 9], [16, 4], [23, 4], [23, 14], [28, 14], [28, 9], [30, 9]];
-const TRUNK_10 = [[6, 8], [11, 8], [11, 13], [17, 13], [17, 4], [23, 4], [23, 13], [28, 13], [28, 9], [30, 9]];
+// Sector 02: the shared trunk ties a loop that crosses itself before running to the Core
+const TRUNK_02 = [[5, 9], [17, 9], [17, 4], [12, 4], [12, 14], [23, 14], [23, 9], [28, 9]];
+// Sector 10: the vault. Lanes run down the outer walls, meet head-on at the bottom gate,
+// split around the inner ring and meet again at the top, right above the Core.
+const VAULT_L = [[5, 15], [16, 15], [16, 13], [11, 13], [11, 5], [16, 5], [16, 9]];
+const VAULT_R = [[27, 15], [16, 15], [16, 13], [21, 13], [21, 5], [16, 5], [16, 9]];
 
 export const MAPS = [
   {
@@ -56,8 +61,8 @@ export const MAPS = [
     name: 'Sector 02',
     title: 'Twin Breach',
     difficulty: 'Advanced',
-    desc: 'Two breaches feed one trunk line. New malware: Worms, Ciphers, Rootkits, Patchers.',
-    startCredits: 320,
+    desc: 'Two breaches feed one trunk that loops back across itself. New malware: Worms, Ciphers, Rootkits, Patchers.',
+    startCredits: 250, // the loop's crossing is a strong tower spot → leaner start
     medals: [['flawless'], ['duo', 2], ['overclocked']],
     theme: {
       city: { density: 1, colors: ['#ffb347', '#ff6a3d', '#ff2a6d', '#ffd27a'], seed: 23 },
@@ -65,10 +70,10 @@ export const MAPS = [
       ambient: ['#ff8a3d', '#ff2a6d', '#ffb800'],
       grade: { lift: [0.012, 0.004, 0], gain: [1.06, 0.97, 0.9] },
     },
-    hpCurve: [0.16, 0.028], // 12 waves → gentler growth than Sector 01's default
+    hpCurve: [0.3, 0.058],
     paths: [
-      [[0, 3], [8, 3], [8, 9], ...TRUNK_02],
-      [[0, 15], [12, 15], [12, 9], ...TRUNK_02],
+      [[0, 4], [5, 4], ...TRUNK_02],
+      [[0, 14], [5, 14], ...TRUNK_02],
     ],
     waves: [
       [['scout', 10, 0.7, 0, 0]],
@@ -162,9 +167,9 @@ export const MAPS = [
     name: 'Sector 05',
     title: 'Blackout',
     difficulty: 'Stealth',
-    desc: 'The district has gone dark. Two long lanes, Rootkits hiding in the fog — and something big at the end.',
+    desc: 'The district has gone dark. Two lanes braid across each other, Rootkits hiding in the fog — and something big at the end.',
     startCredits: 340,
-    hpCurve: [0.175, 0.031],
+    hpCurve: [0.14, 0.024],
     rule: 'dark',
     medals: [['flawless'], ['unassisted'], ['lean', 10]],
     theme: {
@@ -175,8 +180,8 @@ export const MAPS = [
       grade: { lift: [0, 0, 0.008], gain: [0.86, 0.9, 0.96] },
     },
     paths: [
-      [[0, 2], [14, 2], [14, 7], [22, 7], [22, 9], [29, 9]],
-      [[0, 15], [10, 15], [10, 11], [22, 11], [22, 9], [29, 9]],
+      [[0, 3], [10, 3], [10, 14], [20, 14], [20, 9], [29, 9]],
+      [[0, 15], [5, 15], [5, 7], [15, 7], [15, 11], [25, 11], [25, 9], [29, 9]],
     ],
     waves: [
       [['scout', 10, 0.6, 0, 0], ['scout', 10, 0.6, 1, 1]],
@@ -198,9 +203,9 @@ export const MAPS = [
     name: 'Sector 06',
     title: 'Foundry',
     difficulty: 'Armored',
-    desc: 'A hairpin bus folds back through the smelters. Armored Trojans in numbers, Patchers keeping them alive.',
+    desc: 'The bus cascades down the smelter terraces and climbs back up. Armored Trojans in numbers, Patchers keeping them alive.',
     startCredits: 300,
-    hpCurve: [0.112, 0.019],
+    hpCurve: [0.125, 0.021],
     rule: 'hardened',
     medals: [['flawless'], ['duo', 3], ['restraint']],
     theme: {
@@ -211,7 +216,11 @@ export const MAPS = [
       grade: { lift: [0.016, 0.004, 0], gain: [1.08, 0.95, 0.85] },
     },
     paths: [
-      [[0, 3], [24, 3], [24, 8], [4, 8], [4, 13], [27, 13], [27, 9]],
+      [
+        [0, 1], [2, 1], [2, 4], [4, 4], [4, 7], [6, 7], [6, 10], [8, 10], [8, 13], [10, 13], [10, 16],
+        [12, 16], [12, 13], [14, 13], [14, 10], [16, 10], [16, 7], [18, 7], [18, 4], [20, 4], [20, 1],
+        [22, 1], [22, 4], [24, 4], [24, 7], [26, 7], [26, 10], [28, 10], [28, 15],
+      ],
     ],
     waves: [
       [['brute', 4, 2, 0], ['scout', 8, 0.5, 2]],
@@ -234,7 +243,7 @@ export const MAPS = [
     name: 'Sector 07',
     title: 'Deep Archive',
     difficulty: 'Maze',
-    desc: 'A twisting route through the stacks. Shields and cloaks — precision beats raw damage here.',
+    desc: 'A crooked route doubles back through the stacks, the Core tucked away in a dead-end alcove. Shields and cloaks — precision beats raw damage here.',
     startCredits: 300,
     hpCurve: [0.21, 0.04],
     rule: 'readonly',
@@ -247,7 +256,7 @@ export const MAPS = [
       grade: { lift: [0, 0.012, 0.006], gain: [0.93, 1.05, 0.98] },
     },
     paths: [
-      [[3, 17], [3, 12], [8, 12], [8, 3], [14, 3], [14, 14], [20, 14], [20, 5], [26, 5], [26, 10], [30, 10]],
+      [[12, 17], [12, 10], [6, 10], [6, 3], [13, 3], [13, 7], [21, 7], [21, 3], [27, 3], [27, 14], [22, 14], [22, 11]],
     ],
     waves: [
       [['cipher', 8, 0.8, 0]],
@@ -270,7 +279,7 @@ export const MAPS = [
     name: 'Sector 08',
     title: 'Storm Front',
     difficulty: 'Twin lanes',
-    desc: 'Two mirrored lanes collide right in front of the Core. Short routes, dense waves, lightning overhead.',
+    desc: 'The storm rolls in from the east: two mirrored lanes wrap around the Core and collide behind it. Short routes, dense waves, lightning overhead.',
     startCredits: 360,
     hpCurve: [0.165, 0.029],
     rule: 'lightning',
@@ -283,8 +292,8 @@ export const MAPS = [
       grade: { lift: [0.006, 0.004, 0.016], gain: [0.96, 0.97, 1.08] },
     },
     paths: [
-      [[0, 3], [9, 3], [9, 6], [20, 6], [20, 9], [30, 9]],
-      [[0, 15], [9, 15], [9, 12], [20, 12], [20, 9], [30, 9]],
+      [[31, 3], [23, 3], [23, 6], [4, 6], [4, 9], [10, 9]],
+      [[31, 15], [23, 15], [23, 12], [4, 12], [4, 9], [10, 9]],
     ],
     waves: [
       [['scout', 10, 0.5, 0, 0], ['scout', 10, 0.5, 0, 1]],
@@ -346,7 +355,7 @@ export const MAPS = [
     name: 'Sector 10',
     title: 'The Kernel',
     difficulty: 'Final',
-    desc: 'The heart of the grid. Three breaches, one serpentine trunk, and two Leviathans at the end.',
+    desc: 'The heart of the grid: a vault of two rings. Three breaches, lanes that meet head-on and split again, and two Leviathans at the end.',
     startCredits: 380,
     hpCurve: [0.2, 0.037],
     rule: 'panic',
@@ -359,9 +368,9 @@ export const MAPS = [
       grade: { lift: [0.02, 0, 0.004], gain: [1.1, 0.9, 0.92] },
     },
     paths: [
-      [[0, 2], [6, 2], ...TRUNK_10],
-      [[0, 15], [6, 15], ...TRUNK_10],
-      [[11, 0], ...TRUNK_10.slice(1)],
+      [[10, 0], [10, 2], [5, 2], ...VAULT_L],
+      [[22, 0], [22, 2], [27, 2], ...VAULT_R],
+      [[0, 9], [5, 9], ...VAULT_L],
     ],
     waves: [
       [['scout', 10, 0.5, 0, 0], ['scout', 10, 0.5, 0, 1], ['scout', 8, 0.5, 2, 2]],

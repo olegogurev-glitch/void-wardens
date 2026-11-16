@@ -60,15 +60,15 @@ Every sector has its own layout, malware mix, **rule** (set as `rule` in `src/ma
 | Sector | Layout | Waves | Rule | New malware / focus | Look |
 |---|---|---|---|---|---|
 | **01 · Serpent Bus** | 1 breach, long winding route | 10 | — | Glitches, Trojans · boss | Cyan night city |
-| **02 · Twin Breach** | 2 breaches → shared trunk | 12 | — | Worms, Ciphers, Rootkits, Patchers · boss | Amber city, rain |
+| **02 · Twin Breach** | 2 breaches → shared trunk that loops across itself | 12 | — | Worms, Ciphers, Rootkits, Patchers · boss | Amber city, rain |
 | **03 · Cold Storage** | Spiral into a central Core | 12 | **Permafrost** — slows/freezes last 2× | **Furnace** | Ice blue, snow |
 | **04 · Neon Bazaar** | 3 breaches → one junction | 12 | **Market Rush** — kills +25% credits, 10s breaks | **Jammer** | Violet market, data glyphs |
-| **05 · Blackout** | 2 long lanes meeting before the Core | 12 | **Low Visibility** — range −12%, hit Rootkits exposed 2.5× longer | Rootkits, Jammers · boss | Dark blue, fog |
-| **06 · Foundry** | Hairpin folding back on itself | 13 | **Hardened** — malware +1 armor, armor-piercing +30% | **Bulwark** | Amber, embers |
-| **07 · Deep Archive** | Maze from the bottom edge | 13 | **Read-Only** — selling refunds 100% | **Carrier** | Green, dust |
-| **08 · Storm Front** | Mirrored lanes colliding at the Core | 14 | **Lightning** — strikes hit and stun malware | Mixed · boss | Indigo, lightning + thunder |
+| **05 · Blackout** | 2 lanes braided across each other | 12 | **Low Visibility** — range −12%, hit Rootkits exposed 2.5× longer | Rootkits, Jammers · boss | Dark blue, fog |
+| **06 · Foundry** | Terraced staircase down and back up | 13 | **Hardened** — malware +1 armor, armor-piercing +30% | **Bulwark** | Amber, embers |
+| **07 · Deep Archive** | Crooked switchbacks, Core in a dead-end alcove | 13 | **Read-Only** — selling refunds 100% | **Carrier** | Green, dust |
+| **08 · Storm Front** | Lanes from the east wrap the Core, collide behind it | 14 | **Lightning** — strikes hit and stun malware | Mixed · boss | Indigo, lightning + thunder |
 | **09 · Orbital Relay** | Centre Core, breaches on both flanks | 14 | **Uplink** — abilities recharge 40% faster | **Blinker** | Silver, starfield, meteors |
-| **10 · The Kernel** | 3 breaches → serpentine trunk | 15 | **Kernel Panic** — each leak speeds all malware 25% for 4s | Everything · two bosses | Crimson, corruption static |
+| **10 · The Kernel** | Vault of two rings around a centre Core | 15 | **Kernel Panic** — each leak speeds all malware 25% for 4s | Everything · two bosses | Crimson, corruption static |
 
 New malware (stats in `ENEMIES`, `src/config.js`): **Furnace** — immune to slow and freeze, its heat pulses thaw allies nearby. **Jammer** — towers within its field reload 40% slower (static crawls over them). **Bulwark** — allies near it take 40% less damage (they show a hex shell). **Carrier** — drops pairs of Glitches as it walks (up to 6). **Blinker** — teleports ~2 tiles ahead every few seconds (not while a Firewall is up). A wave that brings a type for the first time in a sector says so in its banner.
 

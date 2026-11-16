@@ -47,6 +47,7 @@ export class GameMap {
       for (let i = 0; i < waypoints.length - 1; i++) {
         let [c, r] = waypoints[i];
         const [c1, r1] = waypoints[i + 1];
+        if (c !== c1 && r !== r1) throw new Error(`${def.id}: diagonal segment [${c},${r}] → [${c1},${r1}]`);
         const sc = Math.sign(c1 - c), sr = Math.sign(r1 - r);
         this.block(c, r);
         while (c !== c1 || r !== r1) { c += sc; r += sr; this.block(c, r); }
