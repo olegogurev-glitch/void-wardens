@@ -4,7 +4,7 @@ import {
   TILE, WORLD_W, WORLD_H, ENEMIES, TOWERS,
   ABILITIES, DIFFICULTIES, difficultyOf, START_CREDITS, START_LIVES, BREAK_TIME, SELL_RATIO, EARLY_BONUS_PER_SEC,
   waveHpMult, waveClearBonus, towerStats, upgradeOptions, RULES, CARDS, CARD_ODDS, CARD_EVERY, HP_SCALE,
-  MUTATORS, SCORE,
+  MUTATORS, SCORE, CC, ENDLESS,
 } from './config.js';
 import { FX } from './fx.js';
 import { t as T } from './i18n.js';
@@ -96,7 +96,7 @@ export class Game {
     if (type === 'arc' && st.chains) st.chains += m.chains;
     if (type === 'launcher' && st.splash) st.splash *= m.splash;
     if (st.kind === 'mines') st.maxMines += m.mineMax;
-    if (type === 'cryo' && st.slow) st.slow = Math.min(0.85, st.slow + m.slowBonus);
+    if (type === 'cryo' && st.slow) st.slow = Math.min(CC.slowCap, st.slow + m.slowBonus);
     return st;
   }
 
@@ -300,11 +300,16 @@ export class Game {
     const def = ENEMIES[type];
     // (a Leviathan's mult is 1 except deep in Endless — see bossMult)
     const maxHp = def.hp * mult * this.diffFactor('hp') * HP_SCALE * (this.mut.hp || 1);
+    // Endless past the campaign: malware adapts — faster, and shrugs off more crowd control
+    const k = this.endless ? Math.max(0, this.wave - this.map.def.waves.length) : 0;
+    const haste = 1 + Math.min(ENDLESS.speedCap, ENDLESS.speedGrowth * k);
     const e = {
       id: this.nextId++, type, def, maxHp, hp: maxHp, mult,
       path, d, lane: def.boss ? 0 : rand(-7, 7),
-      radius: def.radius, armor: def.armor + (this.rule?.armor ?? 0) + (this.mut.armor || 0), speed: def.speed * rand(0.94, 1.06) * (this.mut.speed || 1),
+      radius: def.radius, armor: def.armor + (this.rule?.armor ?? 0) + (this.mut.armor || 0), speed: def.speed * rand(0.94, 1.06) * (this.mut.speed || 1) * haste,
       slowAmt: 0, slowT: 0, freezeT: 0, stunT: 0, vulnAmt: 0, vulnT: 0, pullCd: 0,
+      pulls: 0, ccImmT: 0, ccRes: Math.min(ENDLESS.ccCap, ENDLESS.ccGrowth * k),
+      surgeT: 0, overT: def.overclock ? def.overclock.every * 0.6 : 0,
       flash: 0, dead: false, leaked: false, age: d > 0 ? 0.25 : 0, seed: Math.random() * 100, trailT: 0,
       shieldUp: !!def.shield, shieldT: 0, revealT: 0, healT: def.heal ? def.heal.every * rand(0.3, 1) : 0,
       thermalT: def.thermal ? def.thermal.every * rand(0.3, 1) : 0, carryT: def.carry ? def.carry.every * rand(0.5, 1) : 0, carried: 0,
@@ -341,10 +346,15 @@ export class Game {
       if (e.slowT > 0) { e.slowT -= dt; if (e.slowT <= 0) e.slowAmt = 0; }
       if (e.vulnT > 0) { e.vulnT -= dt; if (e.vulnT <= 0) e.vulnAmt = 0; }
       if (e.pullCd > 0) e.pullCd -= dt;
+      if (e.ccImmT > 0) e.ccImmT -= dt;
+      // Leviathan overclock: throws off every slow, freeze and stun, surges and drops Glitches
+      if (e.def.overclock) this.overclock(e, dt);
       let mult = 1 - e.slowAmt;
       if (this.panicT > 0) mult *= this.rule.panic.speed;
-      if (e.freezeT > 0) { e.freezeT -= dt; mult = 0; }
-      if (e.stunT > 0) { e.stunT -= dt; mult = 0; }
+      // a freeze or stun is followed by a short immunity, so towers can't chain-lock malware
+      if (e.freezeT > 0) { e.freezeT -= dt; mult = 0; if (e.freezeT <= 0) e.ccImmT = CC.grace; }
+      if (e.stunT > 0) { e.stunT -= dt; mult = 0; if (e.stunT <= 0) e.ccImmT = CC.grace; }
+      if (e.surgeT > 0) mult = e.def.overclock.speed * (this.panicT > 0 ? this.rule.panic.speed : 1);
       const ease = Math.min(1, e.age / 0.4);
       const prevD = e.d;
       e.d += e.speed * mult * dt * (0.4 + 0.6 * ease);
@@ -518,7 +528,7 @@ export class Game {
     for (const e of this.enemies) {
       if (e.dead || e.leaked || (e.x - m.x) ** 2 + (e.y - m.y) ** 2 > (m.radius + e.radius * 0.5) ** 2) continue;
       if (m.strip && e.def.shield && e.shieldUp) { e.shieldUp = false; e.shieldT = e.def.shield; }
-      if (m.stun) e.stunT = Math.max(e.stunT, m.stun * (e.def.ccResist ?? 1));
+      if (m.stun) this.hold(e, 'stunT', m.stun);
     }
     this.explodeAt(m.x, m.y, m.dmg, m.radius, m.src, m.color, m.big || m.radius > 70, !m.big && m.radius < 50);
     if (m.slow) this.zones.push({ x: m.x, y: m.y, r: m.radius * 0.9, dps: 0, slow: m.slow, t: 3, max: 3, tick: 0, color: '#8d7bff', src: m.src });
@@ -542,7 +552,7 @@ export class Game {
     const x = t.x, y = t.y, dmg = sk.dmg * waveHpMult(this.wave, this.map.def.hpCurve);
     for (const e of pool) {
       if ((e.x - x) ** 2 + (e.y - y) ** 2 > sk.radius * sk.radius) continue;
-      e.stunT = Math.max(e.stunT, sk.stun * (e.def.ccResist ?? 1));
+      this.hold(e, 'stunT', sk.stun);
       this.hurt(e, dmg, null, true);
     }
     this.fx.ring(x, y, 6, sk.radius, 0.4, '#c9b8ff', 4);
@@ -777,7 +787,7 @@ export class Game {
       if (e.dead || e.leaked) continue;
       if (e.def.shield) { e.shieldUp = false; e.shieldT = e.def.shield; }
       if (e.def.stealth) e.revealT = Math.max(e.revealT, def.reveal);
-      e.stunT = Math.max(e.stunT, def.stun * (e.def.ccResist ?? 1));
+      this.hold(e, 'stunT', def.stun, true);
       if (i++ < 18) fx.lightning([{ x: C.x, y: C.y }, { x: e.x, y: e.y }], def.color, 1.6, 0.35);
       fx.burst(e.x, e.y, def.color, 6, 120, 2, 0.35, 'spark', 4);
       this.hurt(e, e.maxHp * (e.def.boss ? def.bossPct : def.pct) * this.mods.purge, null, true, true);
@@ -1042,28 +1052,58 @@ export class Game {
   // Lightning / pulse status effects
   applyStatus(e, s) {
     if (e.dead) return;
-    const resist = e.def.ccResist ?? 1;
-    const chill = this.rule?.chill ?? 1, immune = !!e.def.thermal;
+    const chill = this.rule?.chill ?? 1, immune = !!e.def.thermal || e.surgeT > 0;
     if (s.slow && !immune) {
-      e.slowAmt = Math.max(e.slowAmt, s.slow * (e.def.boss ? 0.6 : 1));
+      const k = (e.def.boss ? 0.6 : 1) * (e.def.anchored ? 0.5 : 1) * (1 - e.ccRes);
+      e.slowAmt = Math.max(e.slowAmt, s.slow * k);
       e.slowT = Math.max(e.slowT, s.slowTime * chill);
     }
-    if (s.stunChance && Math.random() < s.stunChance) {
-      e.stunT = Math.max(e.stunT, s.stunTime * resist);
+    if (s.stunChance && Math.random() < s.stunChance && this.hold(e, 'stunT', s.stunTime)) {
       this.fx.burst(e.x, e.y, '#fff27a', 6, 90, 2, 0.3, 'spark', 4);
     }
-    if (s.freezeChance && !immune && e.freezeT <= 0 && Math.random() < s.freezeChance) {
-      e.freezeT = s.freezeTime * resist * chill;
+    if (s.freezeChance && !immune && e.freezeT <= 0 && Math.random() < s.freezeChance && this.hold(e, 'freezeT', s.freezeTime * chill)) {
       this.fx.burst(e.x, e.y, '#eaf8ff', 10, 110, 2.5, 0.4);
     }
     if (s.vuln) {
       e.vulnAmt = Math.max(e.vulnAmt, s.vuln);
       e.vulnT = Math.max(e.vulnT, s.slowTime + 0.4);
     }
-    if (s.pull && e.pullCd <= 0) {
-      e.d = Math.max(0, e.d - s.pull * (e.def.boss ? 0.3 : 1));
+    // Rollback: each malware can only be rolled back a few times; bosses and Watchdogs hold their ground
+    if (s.pull && e.pullCd <= 0 && e.pulls < CC.pulls && !e.def.boss && !e.def.anchored) {
+      e.d = Math.max(0, e.d - s.pull * (1 - e.ccRes));
+      e.pulls++;
       e.pullCd = 1.1;
     }
+  }
+
+  // Freeze or stun (key 'freezeT' | 'stunT') for `time` seconds, if it can take hold. Watchdogs and a
+  // surging Leviathan ignore it, bosses and Endless malware resist it, and after one wears off there is
+  // a short immunity (abilities pass `force` to skip that). Returns whether it took hold.
+  hold(e, key, time, force = false) {
+    if (e.def.anchored || e.surgeT > 0 || (!force && e.ccImmT > 0)) return false;
+    const t = time * (e.def.ccResist ?? 1) * (1 - e.ccRes);
+    if (t <= 0) return false;
+    e[key] = Math.max(e[key], t);
+    return true;
+  }
+
+  overclock(e, dt) {
+    const oc = e.def.overclock;
+    if (e.surgeT > 0) { e.surgeT -= dt; return; }
+    if ((e.overT -= dt) > 0) return;
+    e.overT = oc.every * rand(0.85, 1.15);
+    e.surgeT = oc.time;
+    e.slowAmt = 0; e.slowT = 0; e.freezeT = 0; e.stunT = 0;
+    const mult = waveHpMult(this.wave, this.map.def.hpCurve);
+    for (let i = 0; i < oc.drop; i++) this.spawnLater.push({ type: 'scout', mult, path: e.path, d: Math.max(1, e.d - 14 - i * 12) });
+    const fx = this.fx;
+    fx.ring(e.x, e.y, e.radius, e.radius * 3.2, 0.45, '#ffffff', 3);
+    fx.ring(e.x, e.y, e.radius, e.radius * 2.2, 0.35, e.def.color, 4);
+    fx.burst(e.x, e.y, e.def.color, 26, 260, 3, 0.5, 'spark', 3);
+    fx.text(e.x, e.y - e.radius - 18, T('OVERCLOCK'), '#ffffff', 14);
+    fx.shake(4);
+    this.emit('overclock', e);
+    this.sfx('emp', e.x);
   }
 
   fire(t, target) {

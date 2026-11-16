@@ -70,7 +70,9 @@ Every sector has its own layout, malware mix, **rule** (set as `rule` in `src/ma
 | **09 · Orbital Relay** | Centre Core, breaches on both flanks | 14 | **Uplink** — abilities recharge 40% faster | **Blinker** | Silver, starfield, meteors |
 | **10 · The Kernel** | Vault of two rings around a centre Core | 15 | **Kernel Panic** — each leak speeds all malware 25% for 4s | Everything · two bosses | Crimson, corruption static |
 
-New malware (stats in `ENEMIES`, `src/config.js`): **Furnace** — immune to slow and freeze, its heat pulses thaw allies nearby. **Jammer** — towers within its field reload 40% slower (static crawls over them). **Bulwark** — allies near it take 40% less damage (they show a hex shell). **Carrier** — drops pairs of Glitches as it walks (up to 6). **Blinker** — teleports ~2 tiles ahead every few seconds (not while a Firewall is up). A wave that brings a type for the first time in a sector says so in its banner.
+**Crowd-control limits** (`CC` in `src/config.js`): towers can't chain-lock malware. After a freeze or stun wears off, a malware can't be frozen or stunned by towers for 1s. Total slow is capped at 70%. Rollback can push each malware back only 3 times, and never a boss. Leviathan **overclocks** every ~8s: it throws off all chill and stuns, surges at 1.8× speed for 2s, and drops 3 Glitches.
+
+New malware (stats in `ENEMIES`, `src/config.js`): **Watchdog** — towers can't freeze, stun or roll it back, and slows work at half strength. It shows up in the last waves of Sectors 08–10 and in every Endless wave past the campaign. **Furnace** — immune to slow and freeze, its heat pulses thaw allies nearby. **Jammer** — towers within its field reload 40% slower (static crawls over them). **Bulwark** — allies near it take 40% less damage (they show a hex shell). **Carrier** — drops pairs of Glitches as it walks (up to 6). **Blinker** — teleports ~2 tiles ahead every few seconds (not while a Firewall is up). A wave that brings a type for the first time in a sector says so in its banner.
 
 ### Upgrade cards (data caches)
 
@@ -131,7 +133,9 @@ Tabs at the top of the start screen switch between **Campaign**, **Endless** and
 
 **Endless** opens per sector once you've cleared it in the campaign, on any difficulty, and is played on the difficulty you pick. You play the sector's own waves, then it keeps going: "Into the void" marks the first wave past the campaign.
 - **Generated waves:** each one reuses one of the sector's last 4 waves, cycling, so the timings still fit its routes. Each wave past the campaign adds 7% more malware in the same time window, and HP keeps following the sector's curve.
+- **Adaptation:** past the campaign, malware gets 2% faster per wave (up to +50%) and 3% more resistant to slows, freezes, stuns and rollback (up to 60%). A pack of **Watchdogs** (2, plus 1 every 2 waves) joins every generated wave. The next-wave bar shows the speed bonus as `SPD +n%`.
 - **Leviathans:** one arrives every 5th wave beyond the campaign, scaled up with the HP curve, and two arrive from the 10th.
+- **Lock check:** `node tools/locktest.mjs sector-10 hard` buys one fully evolved build before wave 1, never adds to it, and reports the wave where the Core falls. A crowd-control build (Rollback + Absolute Zero) used to hold forever on Sectors 04 and 10. It now falls around waves 11–15, the same as a damage build.
 - **Records:** waves are generated the same way for everyone. The best wave (and its score) is saved per sector and difficulty and shown on the sector node.
 - **Tuning:** `ENDLESS` in `src/config.js`; the generator is `endlessWave` in `src/modes.js`.
 - **Bot check:** `ENDLESS=1 node tools/sim.mjs 2 sector-01 easy`. Bots that survive the campaign usually fall between waves 15 and 40.
@@ -211,7 +215,7 @@ Each tower has 3 levels. Level 2 is a choice between two branches. Level 3 is a 
 | Tower | Lv 2: Branch A → Lv 3 options | Lv 2: Branch B → Lv 3 options |
 |---|---|---|
 | **Photon Blaster** (50) | Overcharge → **Railgun** (piercing beam) / **Fragment Rounds** (explosive) | Twin Barrels → **Gatling Array** (spins up, faster the longer it fires) / **Scatter Array** (3 targets) |
-| **ICE Node** (70) | Deep Freeze → **Absolute Zero** (freeze solid) / **Shatter** (+40% dmg taken) | Wide Field → **Rollback** (pushes enemies back) / **Hailstorm** (faster pulses + 3 ice shards) |
+| **ICE Node** (70) | Deep Freeze → **Absolute Zero** (freeze solid) / **Shatter** (+40% dmg taken) | Wide Field → **Rollback** (pushes enemies back, 3 times each) / **Hailstorm** (faster pulses + 3 ice shards) |
 | **Arc Relay** (90) | Conductor → **Tempest** (9 chains, then a 50% echo strike) / **Overload** (stun) | High Voltage → **EMP Burst** (hits all in range) / **Static Field** (slow) |
 | **Daemon Launcher** (120) | Warheads → **Zero-Day** (huge blasts) / **Cluster Bombs** | Salvo Pods → **Botnet** (6 missiles) / **Corruption** (burning sectors) |
 
@@ -256,7 +260,8 @@ src/ui.js         DOM HUD, dock, evolution panel, banners
 src/i18n.js       language pick, t() and the Russian translation (UI strings + game data)
 src/audio.js      WebAudio-synthesized sound effects
 src/music.js      adaptive procedural synthwave soundtrack
-tools/sim.mjs     headless balance simulator (bots play the real logic)
+tools/sim.mjs     headless balance simulator (bots play the real logic; `cc` = Rollback/Absolute Zero bot)
+tools/locktest.mjs fixed late-game build vs Endless: finds where it breaks
 tools/serve.mjs   no-cache local dev server
 tools/stamp.mjs   cache-busting fingerprints for deploys
 src/main.js       bootstrap, input, game loop

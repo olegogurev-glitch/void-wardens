@@ -305,6 +305,7 @@ kbd {
 .ico.rootkit { width: 9px; height: 9px; border: 2px dashed var(--c); transform: rotate(45deg); }
 .ico.furnace { width: 12px; height: 12px; background: var(--c); clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%); }
 .ico.jammer { width: 9px; height: 9px; border: 2px solid var(--c); transform: rotate(45deg); box-shadow: inset 0 0 0 2px #03050a, inset 0 0 0 5px var(--c); }
+.ico.watchdog { width: 13px; height: 10px; background: linear-gradient(90deg, transparent 55%, #ff2a55 55% 80%, transparent 80%) center / 100% 3px no-repeat, var(--c); clip-path: polygon(100% 50%, 78% 0, 15% 0, 0 50%, 15% 100%, 78% 100%); }
 .ico.bulwark { width: 11px; height: 12px; background: var(--c); clip-path: polygon(50% 0, 100% 18%, 92% 65%, 50% 100%, 8% 65%, 0 18%); }
 .ico.carrier { width: 15px; height: 8px; border: 2px solid var(--c); background: repeating-linear-gradient(90deg, var(--c) 0 2px, transparent 2px 4px); }
 .ico.blinker { background: var(--c); clip-path: polygon(100% 50%, 0 0, 35% 50%, 0 100%); box-shadow: -5px 0 0 -1px var(--c); }

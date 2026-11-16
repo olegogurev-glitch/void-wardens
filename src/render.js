@@ -706,6 +706,20 @@ function drawEnemy(ctx, e, time, map, opts = {}) {
     ctx.strokeStyle = col; ctx.lineWidth = 1.6; ctx.stroke();
     ctx.restore();
     add(ctx); sprite(ctx, glow(col), 0, 0, r * 0.4 + charge * charge * 8, 0.5 + charge * 0.5); norm(ctx);
+  } else if (e.type === 'watchdog') {
+    // heavy chrome hull, anchor-plates on the flanks and a red eye that sweeps side to side
+    ctx.save(); ctx.rotate(e.angle);
+    ctx.beginPath();
+    ctx.moveTo(r, 0); ctx.lineTo(r * 0.55, -r * 0.8); ctx.lineTo(-r * 0.7, -r * 0.8); ctx.lineTo(-r, 0); ctx.lineTo(-r * 0.7, r * 0.8); ctx.lineTo(r * 0.55, r * 0.8); ctx.closePath();
+    ctx.fillStyle = '#0d0f1a'; ctx.fill();
+    ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = rgba(col, 0.85);
+    ctx.fillRect(-r * 0.5, -r * 1.05, r * 0.9, 3); ctx.fillRect(-r * 0.5, r * 1.05 - 3, r * 0.9, 3);
+    const sweep = Math.sin(time * 2.6 + e.seed) * r * 0.32;
+    ctx.fillStyle = '#ff2a55';
+    ctx.fillRect(r * 0.18, sweep - 2, r * 0.42, 4);
+    ctx.restore();
+    add(ctx); sprite(ctx, glow('#ff2a55'), 0, 0, r * 0.35, 0.55); norm(ctx);
   } else {
     // Leviathan.exe — nested rotating frames + orbiting shards + glitch slices
     for (let i = 0; i < 3; i++) {
@@ -748,6 +762,20 @@ function drawEnemy(ctx, e, time, map, opts = {}) {
     }
     if (e.flash > 0) {
       add(ctx); sprite(ctx, glow('#ffffff'), 0, 0, r * 1.2, (e.flash / 0.07) * 0.65); norm(ctx);
+    }
+    if (e.surgeT > 0) {
+      // Leviathan overclock: white-hot halo and speed streaks trailing behind it
+      const k = Math.min(1, e.surgeT / 0.3);
+      add(ctx);
+      sprite(ctx, glow('#ff6a8a'), 0, 0, r * 0.9, 0.3 * k);
+      ctx.save(); ctx.rotate(e.angle);
+      ctx.strokeStyle = rgba('#ffffff', 0.5 * k); ctx.lineWidth = 2;
+      for (let i = -2; i <= 2; i++) {
+        const len = r * (1.2 + hash(Math.floor(time * 20) + i) * 1.4);
+        ctx.beginPath(); ctx.moveTo(-r * 1.1, i * r * 0.32); ctx.lineTo(-r * 1.1 - len, i * r * 0.32); ctx.stroke();
+      }
+      ctx.restore();
+      norm(ctx);
     }
     if (e.freezeT > 0) {
       chip(ctx, r + 4, 4);

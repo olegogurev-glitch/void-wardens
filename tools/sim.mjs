@@ -46,7 +46,9 @@ function run(strategy, upgradeMode) {
     let acted = false;
     if (upgradeMode !== 'none' && game.towers.length >= 3) {
       for (const t of game.towers.filter((t) => t.level < 3).sort((a, b) => a.level - b.level)) {
-        const i = upgradeMode === 'A' ? 0 : upgradeMode === 'B' ? 1 : t.id % 2;
+        let i = upgradeMode === 'A' ? 0 : upgradeMode === 'B' ? 1 : t.id % 2;
+        // crowd-control bot: ICE Nodes alternate Rollback and Absolute Zero
+        if (strategy.cc && t.type === 'cryo') i = t.level === 1 ? t.id % 2 : 0;
         const opt = upgradeOptions(t.type, t.path)[i];
         if (opt && game.credits >= opt.cost && (built >= strategy.length || Math.random() < 0.5)) { game.upgrade(t, i); acted = true; break; }
       }
@@ -85,6 +87,11 @@ if (process.argv[5] === 'only-new') { for (const k of Object.keys(STRATEGIES)) i
   hubMix: ['blaster', 'blaster', 'hub', 'arc', 'launcher', 'blaster', 'hub', 'cryo'],
   minesMix: ['blaster', 'mines', 'cryo', 'mines', 'arc', 'launcher'],
 }); }
+// crowd-control lock (node tools/sim.mjs 3 sector-04 normal cc): Rollback + Absolute Zero ICE Nodes
+if (process.argv[5] === 'cc') {
+  for (const k of Object.keys(STRATEGIES)) delete STRATEGIES[k];
+  STRATEGIES.ccLock = Object.assign(['blaster', 'cryo', 'arc', 'cryo', 'launcher', 'cryo', 'blaster', 'cryo', 'launcher', 'arc'], { cc: true });
+}
 let wins = 0, total = 0;
 const all = [];
 for (const [name, strat] of Object.entries(STRATEGIES)) {

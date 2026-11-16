@@ -62,6 +62,10 @@ export function endlessWave(def, w) {
     const n = Math.max(1, Math.round(count * grow));
     return [type, n, (interval * count) / n, delay, path];
   });
+  // Watchdogs shrug off freezes, stuns and rollback: past the campaign, a growing pack joins every wave
+  const span = Math.max(...out.map(([, n, interval, delay]) => delay + n * interval), 4);
+  const dogs = Math.round(ENDLESS.watchdogs.base + ENDLESS.watchdogs.per * k);
+  out.push(['watchdog', dogs, Math.max(0.4, (span * 0.8) / dogs), 1, 'alt']);
   if (k % ENDLESS.bossEvery === 0) out.unshift(['boss', 1 + Math.floor(k / (ENDLESS.bossEvery * 2)), 6, 1.5, 'alt']);
   return out;
 }

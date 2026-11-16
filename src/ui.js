@@ -1,5 +1,5 @@
 // DOM HUD: top stats, tower dock, tower panel with upgrade choices, banners, overlays.
-import { RESEARCH, CARDS, RULES, TOWERS, TOWER_ORDER, ENEMIES, START_LIVES, SELL_RATIO, WORLD_W, COLS, ROWS, ABILITIES, ABILITY_ORDER, DIFFICULTIES, DIFFICULTY_ORDER, towerStats, upgradeOptions, pathNames, waveHpMult } from './config.js';
+import { RESEARCH, CARDS, RULES, TOWERS, TOWER_ORDER, ENEMIES, START_LIVES, SELL_RATIO, WORLD_W, COLS, ROWS, ABILITIES, ABILITY_ORDER, DIFFICULTIES, DIFFICULTY_ORDER, ENDLESS, towerStats, upgradeOptions, pathNames, waveHpMult } from './config.js';
 import { drawTower, motion } from './render.js';
 import { TARGET_MODES } from './game.js';
 import { t as T, fmt, count, enemyNoun, lang, LANGS } from './i18n.js';
@@ -591,7 +591,12 @@ export class UI {
       return `<span class="nw-item" style="--c:${d.color}"><i class="ico ${type}"></i>${label}<em>${d.trait}</em></span>`;
     }).join('');
     const hp = waveHpMult(w, this.game.map.def.hpCurve) * this.game.diffFactor('hp', w);
-    return `<div class="next-wave"><span class="nw-label">${T('Next')}</span>${items}${hp > 1.05 ? `<span class="nw-hp">HP ×${hp.toFixed(1)}</span>` : ''}</div>`;
+    // Endless past the campaign: malware gets faster and shrugs off more crowd control
+    const k = this.game.endless ? w - this.game.map.def.waves.length : 0;
+    const spd = Math.round(100 * Math.min(ENDLESS.speedCap, ENDLESS.speedGrowth * k));
+    const res = Math.round(100 * Math.min(ENDLESS.ccCap, ENDLESS.ccGrowth * k));
+    const adapt = k > 0 ? `<span class="nw-hp" title="${T('Malware adapts: +{s}% speed, {c}% crowd-control resistance', { s: spd, c: res })}">${T('SPD +{n}%', { n: spd })}</span>` : '';
+    return `<div class="next-wave"><span class="nw-label">${T('Next')}</span>${items}${hp > 1.05 ? `<span class="nw-hp">HP ×${hp.toFixed(1)}</span>` : ''}${adapt}</div>`;
   }
 
   // ── Tower panel ─────────────────────────────────────────

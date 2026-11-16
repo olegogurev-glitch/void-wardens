@@ -36,6 +36,13 @@ export const DIFFICULTIES = {
 export const DIFFICULTY_ORDER = ['easy', 'normal', 'hard', 'nightmare'];
 export const difficultyOf = (key) => DIFFICULTIES[key] || DIFFICULTIES.normal;
 
+// ── Crowd control limits ────────────────────────────────────
+// Stacked slows, freezes and rollbacks used to lock malware in place for good.
+// grace:    seconds a malware can't be frozen or stunned by towers after one wears off
+// slowCap:  strongest total slow (cards included)
+// pulls:    how many times one malware can be rolled back (bosses never)
+export const CC = { grace: 1.0, slowCap: 0.7, pulls: 3 };
+
 // ── Player abilities ────────────────────────────────────────
 // Cooldowns run on game time and start ready.
 export const ABILITIES = {
@@ -70,6 +77,8 @@ export const ENEMIES = {
     name: 'Leviathan.exe', plural: 'Leviathan.exe', trait: 'boss · armor 6',
     hp: 5200, speed: 30, armor: 6, reward: 300, radius: 34, leak: 12,
     color: '#ff1f3d', boss: true, ccResist: 0.25,
+    // every few seconds it throws off all chill and stuns, surges forward and drops Glitches
+    overclock: { every: 8, time: 2, speed: 1.8, drop: 3 },
   },
   // ── Sector 02 malware ──
   worm: {
@@ -123,6 +132,11 @@ export const ENEMIES = {
     hp: 72, speed: 78, armor: 0, reward: 9, radius: 11, leak: 1,
     color: '#d6ff3d', blink: { every: 2.8, dist: 78 },
   },
+  watchdog: {
+    name: 'Watchdog', plural: 'Watchdogs', trait: "can't be frozen, stunned or rolled back",
+    hp: 190, speed: 58, armor: 2, reward: 15, radius: 15, leak: 2,
+    color: '#e6e9ff', anchored: true, // tower slows work at half strength
+  },
 };
 
 // ── Sector rules ────────────────────────────────────────────
@@ -142,7 +156,13 @@ export const RULES = {
 // Endless: the sector's waves, then generated ones forever (src/modes.js). Each generated wave
 // reuses one of the sector's last `templates` waves with `countGrowth` more malware per wave
 // beyond the campaign, and a Leviathan every `bossEvery` waves (bosses scale with the HP curve).
-export const ENDLESS = { templates: 4, countGrowth: 0.07, bossEvery: 5 };
+// Malware adapts past the campaign: `speedGrowth` faster and `ccGrowth` more resistant to slows,
+// freezes, stuns and rollback per wave (up to the caps), and a growing pack of Watchdogs joins in.
+export const ENDLESS = {
+  templates: 4, countGrowth: 0.07, bossEvery: 5,
+  speedGrowth: 0.02, speedCap: 0.5, ccGrowth: 0.03, ccCap: 0.6,
+  watchdogs: { base: 2, per: 0.5 },
+};
 // Score (Endless and Daily): kills pay their base bounty ×`kill`, each cleared wave `wave`×its number,
 // early calls `early` per second skipped; a Daily win adds `win` plus `core` per Core integrity left.
 export const SCORE = { kill: 10, wave: 100, early: 10, win: 1000, core: 150 };
@@ -240,7 +260,7 @@ export const TOWERS = {
         next: [
           {
             name: 'Absolute Zero', cost: 150, color: '#eaf8ff',
-            desc: 'Each pulse has a 25% chance to freeze enemies solid.',
+            desc: 'Each pulse has an 18% chance to freeze enemies solid.',
             apply: (s) => { s.slow = 0.62; s.freezeChance = 0.18; s.freezeTime = 1.2; s.color = '#eaf8ff'; },
           },
           {
@@ -257,8 +277,8 @@ export const TOWERS = {
         next: [
           {
             name: 'Rollback', cost: 170, color: '#b388ff',
-            desc: 'Pulses roll enemies back along the data bus.',
-            apply: (s) => { s.pull = 28; s.damage *= 1.3; s.singularity = true; s.color = '#b388ff'; },
+            desc: 'Pulses roll enemies back along the data bus, up to 3 times each. Bosses resist.',
+            apply: (s) => { s.pull = 34; s.damage *= 1.3; s.singularity = true; s.color = '#b388ff'; },
           },
           {
             name: 'Hailstorm', cost: 150, color: '#7fffe1',
