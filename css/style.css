@@ -52,6 +52,8 @@ kbd {
 
 #app {
   display: flex; flex-direction: column; height: 100vh; height: 100dvh;
+  /* keep the HUD and dock clear of a phone's notch / rounded corners (all 0 on desktop) */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   background:
     radial-gradient(900px 400px at 15% 110%, rgba(0, 229, 255, .08), transparent 70%),
     radial-gradient(900px 400px at 90% -10%, rgba(255, 42, 109, .08), transparent 70%),
@@ -929,7 +931,7 @@ kbd {
   .brand-text { display: none; }
   .stats { gap: 6px; }
   .stat { min-width: 0; padding: 2px 8px 3px; }
-  .stat label { font-size: 8px; }
+  .stat label { font-size: 10px; letter-spacing: .12em; }
   .stat .val { font-size: 14px; }
   .bar { width: 40px; }
   .ctrl { width: 30px; height: 26px; }
@@ -951,7 +953,146 @@ kbd {
   .wave-cta { bottom: 6px; }
   .cta { padding: 7px 14px; font-size: 11px; }
   .cta kbd, .next-wave .nw-hp, .nw-item em { display: none; }
-  .panel { width: 280px; padding: 10px; }
+  .nw-label { font-size: 10px; }
+  /* data-cache cards share the map's width instead of 30vw each */
+  .cards { gap: 8px; padding: 8px; }
+  .cards-row { width: 100%; justify-content: center; }
+  .ucard { flex: 1 1 0; width: auto; min-width: 0; max-width: 170px; }
+  /* nothing smaller than ~10px on a phone */
+  .ps label, .p-target label, .s-diff, .uc-rar, .uc-tag, .ln-tier, .cards-head .ck { font-size: 10px; }
+
+  /* tower panel: a full-height side sheet on the half of the map away from the tower (ui.positionPanel sets .side-l) */
+  .panel {
+    top: 0 !important; bottom: 0; left: auto !important; right: 0; width: min(300px, 60%); max-height: none; padding: 8px 10px;
+  }
+  .panel.side-l { left: 0 !important; right: auto; }
+  .p-name { font-size: 13px; }
+  .p-crumbs { font-size: 10px; }
+  .p-stats { margin-top: 6px; gap: 4px; }
+  .ps { display: flex; align-items: baseline; justify-content: space-between; gap: 4px; padding: 3px 6px; }
+  .ps label { letter-spacing: .08em; }
+  .ps b { font-size: 12px; white-space: nowrap; }
+  .p-tags { margin-top: 5px; }
+  .p-target { margin-top: 6px; }
+  .p-target kbd, .u-key, .p-sell kbd { display: none; }
+  .seg button { padding: 5px 0; }
+  .p-meter, .p-sec em { display: none; }
+  .p-sec { margin: 7px 0 4px; }
+  .p-upgrades { gap: 6px; }
+  .upg { padding: 6px 7px; gap: 3px; }
+  .u-name { font-size: 11px; padding-right: 0; }
+  .u-desc { font-size: 10.5px; line-height: 1.25; }
+  .u-cost { font-size: 12px; }
+  .p-sell { margin-top: 6px; padding: 6px; }
+  .p-max { margin-top: 8px; padding: 6px; }
+
+  /* menus use the whole screen, not just the map area */
+  .overlay {
+    position: fixed; z-index: 30;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  .ov-card { padding: 10px 16px; gap: 4px; }
+
+  /* start screen: two columns (title + mode + difficulty | sectors + selected sector) so Start shows without scrolling */
+  .ov-card.campaign {
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 16px; row-gap: 4px;
+    align-content: center; align-items: center; justify-items: center; max-width: 900px;
+  }
+  .ov-card.campaign > * { grid-column: 1; }
+  .ov-card.campaign > .lang-pick { position: static; }
+  .ov-card.campaign > .camp-grid { grid-column: 2; grid-row: 1 / span 3; align-self: end; }
+  .ov-card.campaign > .camp-detail { grid-column: 2; grid-row: 4 / span 2; align-self: start; }
+  .ov-card.campaign > .camp-detail.daily { grid-row: 1 / span 5; align-self: center; }
+  .ov-card.campaign .ov-kicker, .ov-card.campaign .ov-tag, .ov-card.campaign .ov-help { display: none; }
+  .ov-card.campaign .ov-title { margin: 0; font-size: clamp(26px, 4.4vw, 40px); }
+  .ov-card.campaign .mode-tabs { margin: 0; max-width: 100%; flex-wrap: wrap; justify-content: center; }
+  .ov-card.campaign .mt { flex: 0 1 auto; min-width: 0; padding: 5px 9px; }
+  .ov-card.campaign .mt b { font-size: 11px; letter-spacing: .08em; white-space: nowrap; }
+  .camp-detail.daily .s-meta + .s-meta { display: none; }
+  .daily-stats { margin: 4px 0 0; }
+  .camp-detail .daily-stats div { padding: 2px 8px; }
+  .camp-detail .daily-stats b { font-size: 13px; }
+  .daily-stats div { flex: 1 1 0; min-width: 0; }
+  .daily-stats label { letter-spacing: .08em; }
+  .lab-branch { margin-bottom: 4px; }
+  .lab-link { height: 5px; }
+  .lab-node { gap: 1px; padding: 5px 8px; }
+  .ln-cost { margin-top: 1px; }
+  .ov-card.campaign .diff-pick { margin: 0; gap: 5px; }
+  .ov-card.campaign .dp { padding: 6px 10px; }
+  .ov-card.campaign .dp-desc { font-size: 10px; text-align: center; }
+  .camp-head { flex-wrap: wrap; justify-content: center; gap: 6px; margin: 0; }
+  .camp-head > span:first-child, .camp-head .camp-bar { display: none; }
+  .camp-grid { gap: 5px; }
+  .sector.node { min-height: 40px; padding: 4px 6px; }
+  .sector.node .n-title { display: none; }
+  .camp-detail { margin: 0; padding: 7px 12px; }
+  .cd-body { width: 100%; gap: 3px; }
+  .camp-detail .s-map.big { width: 100%; opacity: .25; }
+  .camp-detail .s-desc { display: none; }
+  .cd-title { font-size: 17px; }
+  .cd-rule { padding: 3px 8px; font-size: 11px; }
+  .cd-threats { font-size: 10px; gap: 4px 10px; }
+  .cd-foot { margin-top: 4px; flex-wrap: wrap; }
+  .cd-go { padding: 7px 18px; font-size: 12px; }
+
+  /* research lab and achievements: heading + Back on the left, the grid on the right */
+  .ov-card.lab, .ov-card.achs {
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2.6fr); column-gap: 16px; row-gap: 6px;
+    align-content: center; align-items: center; justify-items: center; max-width: 980px;
+  }
+  .ov-card.lab > *, .ov-card.achs > * { grid-column: 1; margin: 0; }
+  .ov-card.lab > .lab-grid, .ov-card.achs > .ach-grid { grid-column: 2; grid-row: 1 / span 5; }
+  .ov-card.lab .ov-h2, .ov-card.achs .ov-h2 { font-size: 20px; letter-spacing: .1em; }
+  .ov-card.achs > .ach-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: calc(100dvh - 24px); overflow-y: auto; align-self: stretch; }
+  .ach-grid .ach { padding: 6px 8px; gap: 8px; }
+
+  /* pause / result screens */
+  .ov-h2 { margin: 2px 0 8px; font-size: clamp(22px, 4vw, 34px); }
+  .ov-stats { margin-bottom: 10px; }
+  .ov-stars { margin: -4px 0 8px; font-size: 24px; }
+  .ov-unlock, .ov-data, .ov-medals { margin-bottom: 8px; }
+  .btn-primary { padding: 10px 30px; font-size: 14px; }
+  .comfort { margin-top: 8px; gap: 5px; }
+  .fx-pick { margin-top: 10px; }
+
+  /* pause: Resume / Restart / Sectors on the left, graphics + comfort settings on the right */
+  .overlay.pause .ov-card {
+    display: grid; grid-template-columns: auto auto; column-gap: 28px; row-gap: 6px; max-width: none;
+    align-content: center; align-items: center; justify-items: center;
+  }
+  .overlay.pause .ov-card > * { grid-column: 1; margin: 0; }
+  .overlay.pause .ov-card > .fx-pick { grid-column: 2; grid-row: 1 / span 2; align-self: end; }
+  .overlay.pause .ov-card > .comfort { grid-column: 2; grid-row: 3 / span 2; align-self: start; }
+
+  /* results (win / lose / endless / daily): headline + score on the left, rewards + buttons on the right */
+  .ov-card.win, .ov-card.lose {
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-auto-flow: dense; column-gap: 24px; row-gap: 4px;
+    max-width: 860px; width: 100%; align-content: center; align-items: center; justify-items: center;
+  }
+  .ov-card.win > *, .ov-card.lose > * { grid-column: 2; margin: 0; }
+  .ov-card.win > :is(.ov-kicker, .ov-h2, .ov-score, .ov-stars, .ov-stats),
+  .ov-card.lose > :is(.ov-kicker, .ov-h2, .ov-score, .ov-stars, .ov-stats) { grid-column: 1; }
+  .ov-card .share { margin-top: 0; }
+}
+
+/* ── Wide landscape phones (most modern ones): the map is height-bound, so the HUD moves into a left column ── */
+@media (orientation: landscape) and (max-height: 520px) and (min-aspect-ratio: 21/10) {
+  #app { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-rows: minmax(0, 1fr); }
+  .hud {
+    grid-column: 1; grid-row: 1; flex-direction: column; align-items: stretch; gap: 6px; width: 80px; padding: 8px 5px;
+    border-bottom: 0; border-right: 1px solid var(--line); overflow: hidden;
+  }
+  .hud::after { display: none; }
+  .brand { display: none; }
+  .stats { flex-direction: column; gap: 5px; }
+  .stat { padding: 3px 6px 4px; }
+  .stat .diff-tag { display: none; }
+  .bar { width: 26px; }
+  .controls { flex: 0 0 auto; margin-top: auto; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
+  .ctrl { width: auto; height: 30px; }
+  #stage { grid-column: 2; grid-row: 1; margin: 6px 4px 6px 6px; }
+  .dock { grid-column: 3; grid-row: 1; }
 }
 
 /* ── Reduced motion ──────────────────────────────── */

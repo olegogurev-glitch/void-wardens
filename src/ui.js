@@ -18,6 +18,8 @@ const TARGET_HINTS = {
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+// must match the landscape-phone media query in style.css
+const PHONE_LANDSCAPE = window.matchMedia?.('(orientation: landscape) and (max-height: 520px)');
 const CR = '<i class="cr"></i>';
 
 export function statRows(s) {
@@ -671,6 +673,13 @@ export class UI {
   positionPanel() {
     const t = this.view.selected, p = this.els.panel;
     if (!t || p.hidden) return;
+    // landscape phones: CSS makes it a full-height side sheet; open it on the half away from the tower
+    if (PHONE_LANDSCAPE?.matches) {
+      p.style.left = ''; p.style.top = '';
+      p.classList.toggle('side-l', t.x > WORLD_W / 2);
+      return;
+    }
+    p.classList.remove('side-l');
     if (window.innerWidth < 760) { p.style.left = ''; p.style.top = ''; return; }
     const vp = this.els.viewport;
     const k = vp.clientWidth / WORLD_W;
