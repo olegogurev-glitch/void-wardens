@@ -2045,6 +2045,14 @@ export class Renderer {
       const c = ok ? PAL.ok : PAL.hostile;
       ctx.fillStyle = rgba(c, 0.1); ctx.fillRect(hov.c * TILE + 1, hov.r * TILE + 1, TILE - 2, TILE - 2);
       ctx.save(); ctx.translate(x, y); ctx.strokeStyle = rgba(c, 0.9); ctx.lineWidth = 1.5; brackets(ctx, 19, 6); ctx.stroke(); ctx.restore();
+      // touch drag: a faint tether from the fingertip up to the lifted ghost
+      const f = view.finger;
+      if (f) {
+        ctx.save(); ctx.strokeStyle = rgba(c, 0.55); ctx.lineWidth = 1.2;
+        ctx.setLineDash([3, 4]); ctx.beginPath(); ctx.moveTo(f.x, f.y); ctx.lineTo(x, y + TILE / 2); ctx.stroke();
+        ctx.setLineDash([]); ctx.beginPath(); ctx.arc(f.x, f.y, 6, 0, Math.PI * 2); ctx.stroke();
+        ctx.restore();
+      }
       if (this.map.isBuildable(hov.c, hov.r) && !game.towerAt(hov.c, hov.r)) {
         this.drawRange(ctx, x, y, view.placingStats.range, ok ? def.color : PAL.hostile, false);
         // hologram: flickering, occasionally jittering projection with rolling scanlines

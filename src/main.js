@@ -16,6 +16,7 @@ translatePage();
 const canvas = document.getElementById('game');
 const viewportEl = document.getElementById('viewport');
 const stage = document.getElementById('stage');
+const dockEl = document.getElementById('dock');
 
 const store = {
   get(k) { try { return localStorage.getItem('voidwardens.' + k); } catch { return null; } },
@@ -696,6 +697,7 @@ function toWorld(ev) {
 }
 
 canvas.addEventListener('pointermove', (ev) => {
+  if (drag) return; // a touch drag positions the ghost itself (lifted above the finger)
   view.hover = toWorld(ev);
   const t = game.towerAt(view.hover.c, view.hover.r);
   canvas.style.cursor = view.placing || view.ability ? 'crosshair' : t ? 'pointer' : 'default';
@@ -713,27 +715,125 @@ canvas.addEventListener('pointerdown', (ev) => {
     return;
   }
   if (view.placing) {
-    const type = view.placing;
-    if (game.canPlace(type, p.c, p.r)) {
-      // Touch has no hover: first tap previews (ghost + range), second tap on the same tile deploys.
-      const key = p.c + ',' + p.r;
-      if (ev.pointerType === 'touch' && view.touchPending !== key) {
-        view.touchPending = key;
-        sfx.play('click');
-        return;
-      }
-      view.touchPending = null;
-      game.place(type, p.c, p.r);
-      if (!ev.shiftKey || game.credits < TOWERS[type].cost) ctl.cancel();
-    } else {
-      const existing = game.towerAt(p.c, p.r);
-      if (existing) { ctl.cancel(); ctl.select(existing); } else sfx.play('error');
-    }
+    // touch: wait for the finger to either lift (a tap) or move (a drag with a lifted ghost)
+    if (ev.pointerType === 'touch') { beginDrag(ev, 'map', view.placing); return; }
+    tapPlace(p, ev);
     return;
   }
-  const t = game.towerAt(p.c, p.r);
+  // a fingertip is wider than a tile: on touch, a tap near a tower selects it
+  const t = game.towerAt(p.c, p.r) || (ev.pointerType === 'touch' ? nearestTower(p) : null);
   ctl.select(t && t === view.selected ? null : t);
 });
+
+function tapPlace(p, ev) {
+  const type = view.placing;
+  if (game.canPlace(type, p.c, p.r)) {
+    // Touch has no hover: first tap previews (ghost + range), second tap on the same tile deploys.
+    const key = p.c + ',' + p.r;
+    if (ev.pointerType === 'touch' && view.touchPending !== key) {
+      view.touchPending = key;
+      sfx.play('click');
+      return;
+    }
+    view.touchPending = null;
+    game.place(type, p.c, p.r);
+    if (!ev.shiftKey || game.credits < TOWERS[type].cost) ctl.cancel();
+  } else {
+    const existing = game.towerAt(p.c, p.r);
+    if (existing) { ctl.cancel(); ctl.select(existing); } else sfx.play('error');
+  }
+}
+
+// CSS px → world units at the current board scale
+const worldPerPx = () => WORLD_W / canvas.getBoundingClientRect().width;
+
+// closest tower within about a fingertip (≥ ~0.9 tile) of a touch point
+function nearestTower(p) {
+  const reach = Math.max(TILE * 0.9, 22 * worldPerPx());
+  let best = null, bd = reach * reach;
+  for (const t of game.towers) {
+    const d = (t.x - p.x) ** 2 + (t.y - p.y) ** 2;
+    if (d < bd) { bd = d; best = t; }
+  }
+  return best;
+}
+
+// ── Touch: drag a tower onto the map ─────────────────────
+// Drag a dock card (or, while placing, drag on the map) and the ghost + range float above
+// the fingertip, so the finger never hides the tile it is about to land on; lifting the
+// finger deploys there. Taps keep working as before (tap a card, then tap a tile twice).
+const DRAG_LIFT_PX = 44;   // how far above the fingertip the ghost sits, in CSS px
+const DRAG_START_PX = 8;   // travel before a press counts as a drag
+let drag = null;           // { id, from: 'dock' | 'map', type, x0, y0, moved }
+let swallowClick = false;  // the click that follows a dock drag must not toggle the card
+
+function liftedPoint(ev) {
+  const f = toWorld(ev);
+  const lift = DRAG_LIFT_PX * worldPerPx();
+  // near the bottom edge the lift shrinks, so the last rows stay reachable
+  const room = WORLD_H - f.y;
+  const l = room >= lift ? lift : TILE * 0.4 + (lift - TILE * 0.4) * Math.max(0, room) / lift;
+  const y = f.y - l;
+  return { x: f.x, y, c: Math.floor(f.x / TILE), r: Math.floor(y / TILE), finger: { x: f.x, y: f.y } };
+}
+
+function beginDrag(ev, from, type) {
+  drag = { id: ev.pointerId, from, type, x0: ev.clientX, y0: ev.clientY, moved: false };
+}
+
+function endDrag() { drag = null; view.finger = null; }
+
+window.addEventListener('pointermove', (ev) => {
+  if (!drag || ev.pointerId !== drag.id) return;
+  if (!drag.moved) {
+    if (Math.hypot(ev.clientX - drag.x0, ev.clientY - drag.y0) < DRAG_START_PX) return;
+    if (!view.started || view.paused || game.over) { endDrag(); return; }
+    if (drag.from === 'dock' && view.placing !== drag.type) ctl.pickType(drag.type);
+    if (view.placing !== drag.type) { endDrag(); return; } // locked or too expensive
+    drag.moved = true;
+    view.touchPending = null;
+    ui.els.tooltip.hidden = true;
+  }
+  const p = liftedPoint(ev);
+  const inside = p.x >= 0 && p.x < WORLD_W && p.y >= 0 && p.y < WORLD_H;
+  view.hover = inside ? p : null;
+  view.finger = inside ? p.finger : null;
+});
+
+window.addEventListener('pointerup', (ev) => {
+  if (!drag || ev.pointerId !== drag.id) return;
+  const d = drag;
+  endDrag();
+  if (!d.moved) {
+    // a tap: dock taps are handled by the card's click; map taps use the two-tap flow
+    if (d.from === 'map' && view.placing) tapPlace(toWorld(ev), ev);
+    return;
+  }
+  if (d.from === 'dock') { swallowClick = true; setTimeout(() => (swallowClick = false), 400); }
+  const p = view.hover;
+  view.hover = null;
+  if (p && view.placing && game.canPlace(view.placing, p.c, p.r)) {
+    game.place(view.placing, p.c, p.r);
+    ctl.cancel();
+  } else if (p) {
+    sfx.play('error'); // dropped on a path / another tower: keep placing, try again
+  } else if (d.from === 'dock') {
+    ctl.cancel();      // dragged back off the map: never mind
+  }
+});
+window.addEventListener('pointercancel', (ev) => {
+  if (drag && ev.pointerId === drag.id) { endDrag(); view.hover = null; }
+});
+
+dockEl.addEventListener('pointerdown', (ev) => {
+  if (ev.pointerType !== 'touch' || !view.started || view.paused || game.over) return;
+  const card = ev.target.closest('.card');
+  const type = card && TOWER_ORDER.find((k) => ui.cards[k] === card);
+  if (type) beginDrag(ev, 'dock', type);
+});
+dockEl.addEventListener('click', (ev) => {
+  if (swallowClick) { swallowClick = false; ev.stopPropagation(); ev.preventDefault(); }
+}, true);
 
 window.addEventListener('keydown', (ev) => {
   if (ev.repeat || view.intro) return;

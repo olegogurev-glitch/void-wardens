@@ -137,6 +137,7 @@ kbd {
   transition: transform .14s, box-shadow .14s, opacity .2s, filter .2s;
 }
 .card canvas { width: 56px; height: 56px; flex: none; }
+.dock .card { touch-action: none; } /* a finger on a card drags the tower out (main.js), it doesn't scroll */
 .card .info { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; }
 .card .name { font-weight: 600; font-size: 14px; letter-spacing: .04em; text-transform: uppercase; }
 .card .cost { font-family: var(--mono); font-weight: 700; font-size: 13px; color: var(--amber); display: flex; align-items: center; }
@@ -954,6 +955,15 @@ kbd {
   .cta { padding: 7px 14px; font-size: 11px; }
   .cta kbd, .next-wave .nw-hp, .nw-item em { display: none; }
   .nw-label { font-size: 10px; }
+  /* boot console (intro): fit the log and the YES button on one short screen */
+  .boot { padding: 8px max(8px, env(safe-area-inset-right)) 8px max(8px, env(safe-area-inset-left)); }
+  .boot-frame { padding: 10px 14px 12px; }
+  .boot-head { padding-bottom: 6px; }
+  .boot-log { margin: 6px 0; min-height: 0; font-size: 10.5px; line-height: 1.45; }
+  .boot-ask { margin-top: 8px; gap: 8px; }
+  .boot-q { font-size: 18px; }
+  .boot-yes { padding: 10px 52px; font-size: 18px; }
+  .boot-hint { display: none; }
   /* data-cache cards share the map's width instead of 30vw each */
   .cards { gap: 8px; padding: 8px; }
   .cards-row { width: 100%; justify-content: center; }
