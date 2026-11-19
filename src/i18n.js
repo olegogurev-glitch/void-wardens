@@ -373,6 +373,121 @@ const RU = {
   'Void Wardens daily {key}: {s}': 'Void Wardens, испытание дня {key}: {s}',
   'Void Wardens endless: wave {n} on {title}': 'Void Wardens, бесконечный режим: волна {n}, сектор «{title}»',
   '{name} cleared on {diff} — {stars}': '{name} пройден на уровне «{diff}» — {stars}',
+
+  // ---- training (tutorial.js, ui.js, main.js)
+  'Learn the basics': 'Основы игры',
+  'Start here': 'Начни отсюда',
+  'Completed': 'Пройдено',
+  '✓ Completed': '✓ Пройдено',
+  'Grid basics': 'Основы сетки',
+  'New to Void Wardens? A coach walks you through every mechanic on a small practice map — one step at a time, at your own pace.':
+    'Впервые в Void Wardens? Подсказки проведут тебя через все механики на маленькой тренировочной карте — по шагу за раз, в твоём темпе.',
+  'Build and deploy': 'Постройка',
+  'Waves and credits': 'Волны и кредиты',
+  'Slowing': 'Замедление',
+  'Evolution paths': 'Пути эволюции',
+  'Firewall and Purge': 'Файрвол и чистка',
+  'Data caches': 'Тайники данных',
+  'About 5 minutes · can\'t be lost · doesn\'t touch your progress': 'Около 5 минут · проиграть нельзя · прогресс не затрагивается',
+  'Start training ▸': 'Начать обучение ▸',
+  'Train again ▸': 'Пройти ещё раз ▸',
+  'Training': 'Обучение',
+  'Follow the coach · every mechanic, step by step': 'Следуй подсказкам · все механики шаг за шагом',
+  'Training · {n}/{m}': 'Обучение · {n}/{m}',
+  '· time frozen': '· время остановлено',
+  'Exit': 'Выйти',
+  'Next ▸': 'Далее ▸',
+  '▸ Your move': '▸ Твой ход',
+  '+{n} training grant': '+{n} на обучение',
+  'Welcome, Warden': 'Добро пожаловать, страж',
+  'Hostile code breaks in at the <b>breach</b> and runs along the <b>data bus</b> toward the Core. This training shows you every mechanic, one step at a time.':
+    'Вредоносный код врывается через <b>брешь</b> и бежит по <b>шине данных</b> к Ядру. Это обучение покажет все механики игры — по одной за раз.',
+  'The Core': 'Ядро',
+  'Malware that reaches the Core costs integrity. At zero the run is lost. (Training can\'t be lost — so experiment.)':
+    'Каждый вредонос, добравшийся до Ядра, отнимает целостность. На нуле забег проигран. (Обучение проиграть нельзя — так что экспериментируй.)',
+  'Credits buy towers and upgrades. You earn them for every kill and every wave you clear.':
+    'Кредиты тратятся на башни и улучшения. Ты получаешь их за каждое уничтожение и каждую отбитую волну.',
+  'Build a tower': 'Построй башню',
+  'Pick the <b>Photon Blaster</b> in the dock (key <kbd>1</kbd>). It fires fast bolts at one target.':
+    'Выбери <b>Фотонный бластер</b> на панели внизу (клавиша <kbd>1</kbd>). Он быстро стреляет зарядами по одной цели.',
+  'Tap the <b>Photon Blaster</b> in the dock — or drag it straight onto the map.':
+    'Коснись <b>Фотонного бластера</b> на панели — или сразу перетащи его на карту.',
+  'Deploy it': 'Размести её',
+  'Click the marked tile. The circle shows the tower\'s range. Towers go on empty tiles, never on the bus.':
+    'Нажми на отмеченную клетку. Круг показывает радиус башни. Башни ставятся на пустые клетки, но не на шину.',
+  'Tap the marked tile twice — once to preview, once to deploy. The circle shows the tower\'s range.':
+    'Коснись отмеченной клетки дважды: первый раз — предпросмотр, второй — установка. Круг показывает радиус башни.',
+  'Run wave 1': 'Запусти волну 1',
+  'Press <b>Run wave</b> (<kbd>Space</kbd>) when you\'re ready. The strip above it shows what\'s coming.':
+    'Нажми <b>Запустить волну</b> (<kbd>Пробел</kbd>), когда будешь готов. Полоса над кнопкой показывает, кто идёт.',
+  'Towers fire on their own': 'Башни стреляют сами',
+  'Your Blaster aims and shoots by itself. Every kill drops credits into your balance.':
+    'Бластер сам наводится и стреляет. Каждое уничтожение приносит кредиты.',
+  'A cleared wave pays a bonus. Normally a short break then starts the next wave by itself — call it early for <b>+3 credits</b> per second skipped. In training the clock waits for you.':
+    'За отбитую волну дают бонус. Обычно после короткой паузы следующая волна стартует сама — вызови её раньше и получи <b>+3 кредита</b> за каждую пропущенную секунду. В обучении таймер ждёт тебя.',
+  'Slow them down': 'Замедли их',
+  'Towers have different jobs. The <b>ICE Node</b> (key <kbd>2</kbd>) slows all malware in its pulse. Deploy one on the marked tile, under the Blaster.':
+    'У башен разные задачи. <b>ICE-узел</b> (клавиша <kbd>2</kbd>) замедляет всех вредоносов в своём импульсе. Поставь его на отмеченную клетку, под бластером.',
+  'Armor': 'Броня',
+  'Here come the <b>Trojans</b>. Armor 3 takes 3 damage off every hit, and each one that leaks costs 2 integrity. Run wave 2.':
+    'Вот и <b>трояны</b>. Броня 3 снимает 3 урона с каждого попадания, а каждый прорвавшийся троян отнимает 2 целостности. Запусти волну 2.',
+  'Slow + damage': 'Замедление + урон',
+  'Slowed by the ICE Node, the Trojans stay in the Blaster\'s range far longer.':
+    'Замедленные ICE-узлом, трояны гораздо дольше остаются в радиусе бластера.',
+  'Armored <b>Trojans</b> come next. Get ready: click your <b>Photon Blaster</b> to open its panel.':
+    'Следом идут бронированные <b>трояны</b>. Подготовься: нажми на свой <b>Фотонный бластер</b>, чтобы открыть его панель.',
+  'Armored <b>Trojans</b> come next. Get ready: tap your <b>Photon Blaster</b> to open its panel.':
+    'Следом идут бронированные <b>трояны</b>. Подготовься: коснись своего <b>Фотонного бластера</b>, чтобы открыть его панель.',
+  'Choose a path': 'Выбери путь',
+  'Every tower evolves twice, and each evolution is a choice between two paths — four final forms per tower. Pick one (<kbd>Q</kbd> / <kbd>E</kbd>).':
+    'Каждая башня эволюционирует дважды, и каждый раз нужно выбрать один из двух путей — у каждой башни четыре финальные формы. Выбери путь (<kbd>Q</kbd> / <kbd>E</kbd>).',
+  'Every tower evolves twice, and each evolution is a choice between two paths — four final forms per tower. Pick one.':
+    'Каждая башня эволюционирует дважды, и каждый раз нужно выбрать один из двух путей — у каждой башни четыре финальные формы. Выбери путь.',
+  'Targeting and selling': 'Цели и продажа',
+  'The panel also sets what a tower aims at — <b>First</b>, <b>Last</b>, <b>Strong</b> or <b>Close</b> — and <b>sells</b> it for 70% of what you spent (press Sell twice).':
+    'На панели также выбирается цель башни — <b>первый</b>, <b>новый</b>, <b>сильный</b> или <b>ближний</b> — и здесь же башню можно <b>продать</b> за 70% вложенного (нажми «Продать» дважды).',
+  'A big swarm': 'Большой рой',
+  'Wave 3 is a swarm. Spend your credits first — another tower, or the <b>Arc Relay</b> (key <kbd>3</kbd>), whose lightning jumps between targets. Then run it: you\'ll also get two emergency abilities.':
+    'Волна 3 — это рой. Сначала потрать кредиты — ещё одна башня или <b>Дуговое реле</b> (клавиша <kbd>3</kbd>), чья молния перескакивает между целями. Потом запускай: у тебя будут ещё и две экстренные способности.',
+  'Firewall': 'Файрвол',
+  'Time is frozen. Press <b>Firewall</b> (<kbd>Z</kbd>), then click the bus ahead of the swarm. It blocks malware for 5s and burns whatever presses on it.':
+    'Время остановлено. Нажми <b>Файрвол</b> (<kbd>Z</kbd>), затем щёлкни по шине перед роем. Он сдерживает вредоносов 5 с и сжигает тех, кто в него упирается.',
+  'Time is frozen. Tap <b>Firewall</b>, then tap the bus ahead of the swarm. It blocks malware for 5s and burns whatever presses on it.':
+    'Время остановлено. Коснись <b>Файрвола</b>, затем коснись шины перед роем. Он сдерживает вредоносов 5 с и сжигает тех, кто в него упирается.',
+  'System Purge': 'Системная чистка',
+  'Now press <b>System Purge</b> (<kbd>X</kbd>). It hits every malware on the board for 15% of its health and stuns it for a second.':
+    'Теперь нажми <b>Чистку</b> (<kbd>X</kbd>). Она бьёт каждого вредоноса на поле на 15% его здоровья и оглушает на секунду.',
+  'Now tap <b>System Purge</b>. It hits every malware on the board for 15% of its health and stuns it for a second.':
+    'Теперь коснись <b>Чистки</b>. Она бьёт каждого вредоноса на поле на 15% его здоровья и оглушает на секунду.',
+  'Cooldowns': 'Перезарядка',
+  'Both abilities recharge over time; the button counts down until each is ready again. Use them when a wave gets away from you.':
+    'Обе способности перезаряжаются со временем — кнопка показывает, сколько осталось. Используй их, когда волна выходит из-под контроля.',
+  'Data cache': 'Тайник данных',
+  'After every 3rd wave you recover a cache and keep one card for the rest of the run. Your picks collect in the top-left corner.':
+    'После каждой третьей волны ты находишь тайник и оставляешь себе одну карту до конца забега. Выбранные карты собираются в левом верхнем углу.',
+  'Speed and pause': 'Скорость и пауза',
+  'Top right: game speed (<kbd>F</kbd>), pause (<kbd>P</kbd>), music and sound. The pause menu also holds graphics and comfort settings.':
+    'Справа вверху: скорость игры (<kbd>F</kbd>), пауза (<kbd>P</kbd>), музыка и звук. В меню паузы — ещё настройки графики и комфорта.',
+  'You\'re on your own now: build, evolve, then run the last wave. It brings <b>Worms</b> — they split into three when destroyed.':
+    'Дальше сам: строй, улучшай и запускай последнюю волну. В ней будут <b>черви</b> — при уничтожении каждый делится на три.',
+  'Training complete': 'Обучение пройдено',
+  'Ready, Warden': 'Готов, страж',
+  'You know the grid. Here is what waits outside it:': 'Сетку ты знаешь. Вот что ждёт дальше:',
+  'Ten sectors, each with its own layout and a rule that changes how it plays. Clear one to open the next; the more Core you keep, the more stars (up to 3).':
+    'Десять секторов, у каждого своя карта и правило, меняющее игру. Пройди сектор, чтобы открыть следующий; чем целее Ядро, тем больше звёзд (до 3).',
+  'Medals': 'Медали',
+  'Every sector has three optional challenges. Win on Normal or harder to earn them — each pays Data.':
+    'В каждом секторе три необязательных испытания. Победи на уровне «Нормально» или выше, чтобы их получить — каждое приносит данные.',
+  'Every run, won or lost, pays Data. Spend it in Research on permanent upgrades.':
+    'Каждый забег, выигранный или нет, приносит данные. Трать их в Исследованиях на постоянные улучшения.',
+  'Arsenal': 'Арсенал',
+  'Clearing sectors 03, 06 and 08 adds the Spike Lance, Overclock Hub and Logic Mines.':
+    'За прохождение секторов 03, 06 и 08 ты получишь Копьё-шип, Узел разгона и Логические мины.',
+  'Endless · Daily': 'Бесконечный · Испытание дня',
+  'Endless never stops — how far can you hold? The Daily is one challenge a day, the same for everyone.':
+    'Бесконечный режим не кончается — как долго ты продержишься? Испытание дня — одно в сутки, одинаковое для всех.',
+  'Start the campaign ▸': 'Начать кампанию ▸',
+  'Train again': 'Пройти ещё раз',
 };
 
 // ─────────────────────────────────────────────────────────────

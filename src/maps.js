@@ -393,3 +393,29 @@ export const MAPS = [
 ];
 
 export const mapById = (id) => MAPS.find((m) => m.id === id) || MAPS[0];
+
+// Training (menu → Training): one breach, one U-shaped bus, four short waves. Not part of
+// the campaign — it saves no records, pays no Data and can't be lost. The coach in
+// src/tutorial.js points at tiles of this layout, so keep them in step if it changes.
+export const TUTORIAL = {
+  id: 'training',
+  name: 'Training',
+  title: 'Grid Basics',
+  difficulty: 'Training',
+  desc: 'Learn every mechanic, one step at a time.',
+  startCredits: 130,
+  hpCurve: [0, 0], // flat: every lesson should land before the waves get tough
+  theme: {
+    city: { density: 0.45, colors: ['#00e5ff', '#7fe9ff', '#ffb800', '#ffffff'], seed: 7 },
+    ambient: ['#00e5ff', '#ffb800', '#b967ff'],
+  },
+  paths: [
+    [[0, 4], [10, 4], [10, 13], [21, 13], [21, 7], [27, 7]],
+  ],
+  waves: [
+    [['scout', 6, 1.2, 0]],
+    [['brute', 2, 4.5, 0], ['scout', 4, 1, 2]],
+    [['scout', 20, 0.45, 0], ['brute', 1, 0, 5]],
+    [['scout', 14, 0.5, 0], ['brute', 5, 1.8, 2], ['worm', 3, 2.5, 6]],
+  ],
+};

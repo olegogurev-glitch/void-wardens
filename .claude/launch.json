@@ -6,6 +6,12 @@
       "runtimeExecutable": "node",
       "runtimeArgs": ["tools/serve.mjs", "5173"],
       "port": 5173
+    },
+    {
+      "name": "void-wardens-alt",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["tools/serve.mjs", "5174"],
+      "port": 5174
     }
   ]
 }

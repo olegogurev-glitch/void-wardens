@@ -6,7 +6,8 @@ import { Renderer, motion } from './render.js';
 import { UI, describeWave } from './ui.js';
 import { Sfx } from './audio.js';
 import { Music } from './music.js';
-import { MAPS, mapById } from './maps.js';
+import { MAPS, mapById, TUTORIAL } from './maps.js';
+import { Tutor } from './tutorial.js';
 import { runIntro } from './intro.js';
 import { dailyFor, dayKey, prevDayKey, isDayKey } from './modes.js';
 import { t as T, fmt, count, setLang, translatePage } from './i18n.js';
@@ -38,8 +39,8 @@ try { Object.assign(renderer.comfort, JSON.parse(store.get('comfort')) || {}); }
 const COMFORT_PRESETS = { calm: { shake: 0.25, flash: 0.3 }, full: { shake: 1, flash: 1 } };
 const pauseData = () => ({ fx: renderer.mode, tier: renderer.q.name, webgl: !!renderer.post, comfort: renderer.comfort });
 
-function loadSector(id) {
-  const def = mapById(id);
+function loadSector(id) { loadDef(mapById(id)); }
+function loadDef(def) {
   if (def === mapDef) return;
   mapDef = def;
   const map = new GameMap(def);
@@ -84,7 +85,7 @@ const menuData = () => {
   const unlocked = {}, done = {}, endlessOpen = {};
   for (const m of MAPS) { unlocked[m.id] = isUnlocked(m.id); done[m.id] = cleared(m.id); endlessOpen[m.id] = unlockAll || done[m.id]; }
   const d = dailyToday();
-  return { mode: view.mode, maps: MAPS, records: records(), current: view.menuSel || mapDef.id, difficulty: menuDifficulty(), unlocked, cleared: done, data: research.data, labNew: RESEARCH.some((b) => b.nodes.some((n) => research.canBuy(n.id))),
+  return { mode: view.mode, tutNew: store.get('tutorial') !== '1', tutorialMap: TUTORIAL, maps: MAPS, records: records(), current: view.menuSel || mapDef.id, difficulty: menuDifficulty(), unlocked, cleared: done, data: research.data, labNew: RESEARCH.some((b) => b.nodes.some((n) => research.canBuy(n.id))),
     medals: Object.fromEntries(MAPS.map((m) => [m.id, medalsOf(m.id)])), medalDefs: MEDALS, ach: [achOwned().length, ACHIEVEMENTS.length],
     endless: endlessRecords(), endlessOpen,
     daily: { ...d, map: mapById(d.sectorId), mut: MUTATORS[d.mutator], diff: DIFFICULTIES[DAILY_DIFFICULTY], rec: dailyRecord() } };
@@ -181,6 +182,7 @@ function liveStats() {
 }
 function commitRun(result) {
   const r = game.run;
+  if (game.mode === 'tutorial') return; // training keeps no stats
   if (!view.started || !r || r.committed) return;
   const s = liveStats();
   if (result && result.won) { s.wins++; if (result.difficulty === 'nightmare') s.nightmareWins++; }
@@ -197,6 +199,7 @@ function achContext(result = null) {
 }
 // unlock anything newly true; each fires a toast
 function checkAchievements(result = null) {
+  if (game.mode === 'tutorial') return;
   const owned = new Set(achOwned()), c = achContext(result);
   const fresh = ACHIEVEMENTS.filter((a) => !owned.has(a.id) && a.check(c));
   if (!fresh.length) return;
@@ -270,12 +273,14 @@ function shareCard(shot, r) {
   return c;
 }
 
+const MENU_TABS = ['training', 'campaign', 'endless', 'daily'];
 const view = {
   placing: null, placingStats: null, hover: null, selected: null, previewStats: null,
   speed: 1, paused: false, started: false, muted: store.get('muted') === '1',
   musicOn: store.get('music') !== '0',
   // start-screen tab (opened with ?daily from Pixo's "Challenge of the day": the Daily tab)
-  mode: askedDay ? 'daily' : ['campaign', 'endless', 'daily'].includes(store.get('mode')) ? store.get('mode') : 'campaign',
+  // a newcomer (no tab picked yet, training never finished) lands on Training
+  mode: askedDay ? 'daily' : MENU_TABS.includes(store.get('mode')) ? store.get('mode') : store.get('tutorial') === '1' ? 'campaign' : 'training',
 };
 
 const ctl = {
@@ -334,6 +339,7 @@ const ctl = {
   },
   startWave() {
     if (!view.started || view.paused) return;
+    if (!tutor.allowsWave()) { sfx.play('error'); return; } // training: the coach calls the waves
     if (game.startWave()) sfx.unlock();
   },
   toggleSpeed() {
@@ -430,19 +436,38 @@ const ctl = {
     ui.els.music.classList.toggle('off', !view.musicOn);
     store.set('music', view.musicOn ? '1' : '0');
   },
+  // Training: the guided run on its own little map (menu button)
+  tutorial() {
+    if (view.started) return;
+    sfx.unlock(); sfx.play('click');
+    view.menuSel = view.menuSel || (mapDef === TUTORIAL ? MAPS[0].id : mapDef.id);
+    Object.assign(game, { mode: 'tutorial', mutator: null, seed: null, difficulty: 'easy' });
+    music.setOn(view.musicOn);
+    loadDef(TUTORIAL);
+    ctl.restart();
+  },
+  // training finished → straight into Sector 01
+  campaign() {
+    view.mode = 'campaign';
+    store.set('mode', 'campaign');
+    ctl.start(MAPS[0].id, 'campaign');
+  },
   // start-screen tabs: Campaign · Endless · Daily
   mode(m) {
-    if (view.started || !['campaign', 'endless', 'daily'].includes(m) || m === view.mode) return;
+    if (view.started || !MENU_TABS.includes(m) || m === view.mode) return;
     view.mode = m;
     store.set('mode', m);
     sfx.unlock(); sfx.play('click');
-    if (m === 'daily') { view.menuSel = view.menuSel || mapDef.id; loadSector(dailyToday().sectorId); }
+    view.menuSel = view.menuSel || (mapDef === TUTORIAL ? MAPS[0].id : mapDef.id);
+    if (m === 'training') loadDef(TUTORIAL); // its map shows behind the menu
+    else if (m === 'daily') { view.menuSel = view.menuSel || mapDef.id; loadSector(dailyToday().sectorId); }
     else if (isUnlocked(view.menuSel || mapDef.id)) loadSector(view.menuSel || mapDef.id);
     ui.showOverlay('start', menuData());
   },
   // start a run from the menu (the tab decides the mode) or from a result screen ("Next sector": a campaign id)
   start(id, mode) {
     mode = mode || (view.started ? game.mode : view.mode);
+    if (mode === 'training' || mode === 'tutorial') { ctl.tutorial(); return; }
     sfx.unlock();
     if (mode === 'daily') {
       const d = dailyToday();
@@ -462,8 +487,9 @@ const ctl = {
   },
   restart() {
     commitRun(null);
-    game.perks = game.mode === 'daily' ? {} : research.perks(); // the Daily is the same for everyone
+    game.perks = game.mode === 'daily' || game.mode === 'tutorial' ? {} : research.perks(); // the Daily is the same for everyone
     game.reset();
+    if (game.mode === 'tutorial') tutor.start(); else tutor.stop();
     refreshTowerLocks();
     ui.reset();
     view.placing = null; view.selected = null; view.previewStats = null; view.paused = false;
@@ -480,6 +506,7 @@ const ctl = {
     ui.hideCards();
     ui.renderPicked([]);
     if (game.mode === 'daily') ui.banner(T('Daily · {title}', { title: mapDef.title }), T('Twist: {name} — {desc}', game.mut), game.mut.color);
+    else if (game.mode === 'tutorial') ui.banner(T('Training'), T('Follow the coach · every mechanic, step by step'), '#ffb800');
     else {
       const where = `${mapDef.name} · ${mapDef.title}`;
       const how = rule ? T('Rule: {name} — {desc}', rule) : T(game.endless ? 'The waves never stop · how far can you hold?' : 'Deploy towers, then run wave 1');
@@ -500,12 +527,15 @@ const ctl = {
   // back to sector select
   menu() {
     commitRun(null);
+    tutor.stop();
     view.started = false; view.paused = false;
     view.placing = null; view.selected = null;
     ui.els.pause.classList.remove('on');
     music.duck(false);
     Object.assign(game, { mode: 'campaign', mutator: null, seed: null, difficulty: menuDifficulty() });
-    if (view.mode !== 'daily' && game.map.def.id !== (view.menuSel || mapDef.id) && isUnlocked(view.menuSel || mapDef.id)) loadSector(view.menuSel || mapDef.id);
+    if (view.mode === 'training') loadDef(TUTORIAL);
+    else if (mapDef === TUTORIAL) loadSector(view.mode === 'daily' ? dailyToday().sectorId : view.menuSel || store.get('sector'));
+    if (view.mode !== 'daily' && view.mode !== 'training' && game.map.def.id !== (view.menuSel || mapDef.id) && isUnlocked(view.menuSel || mapDef.id)) loadSector(view.menuSel || mapDef.id);
     game.reset();
     refreshTowerLocks();
     ui.reset();
@@ -519,7 +549,7 @@ const ctl = {
   },
   // hovering a sector shows its map behind the menu (locked ones stay dark)
   preview(id) {
-    if (!view.started && view.mode !== 'daily' && id && isUnlocked(id)) loadSector(id);
+    if (!view.started && view.mode !== 'daily' && view.mode !== 'training' && id && isUnlocked(id)) loadSector(id);
   },
   // select a sector on the campaign screen (locked ones show what it takes to open them)
   pick(id) {
@@ -533,6 +563,7 @@ const ctl = {
 };
 
 const ui = new UI(game, view, ctl);
+const tutor = new Tutor({ game, view, ui, ctl, canvas, viewport: viewportEl, sfx });
 sfx.setMuted(view.muted);
 ui.els.mute.classList.toggle('off', view.muted);
 ui.els.music.classList.toggle('off', !view.musicOn);
@@ -636,6 +667,14 @@ function finishEndless() {
 game.on('win', () => {
   slowMo(0.5, 1.2);
   if (game.mode === 'daily') { finishDaily(true); return; }
+  if (game.mode === 'tutorial') {
+    store.set('tutorial', '1');
+    view.mode = 'campaign'; // back on the menu, the campaign is what's next
+    store.set('mode', 'campaign');
+    tutor.stop();
+    setTimeout(() => ui.showOverlay('tutorial'), 1800);
+    return;
+  }
   const stars = starsFor(game.lives, game.maxLives);
   const idx = MAPS.indexOf(mapDef), next = MAPS[idx + 1] || null;
   const wasOpen = next ? isUnlocked(next.id) : true;
@@ -884,7 +923,8 @@ function frame(now) {
   const real = Math.min(0.1, (now - last) / 1000);
   last = now;
   realTime += real;
-  if (view.started && !view.paused) {
+  tutor.update();
+  if (view.started && !view.paused && !tutor.frozen) {
     let remaining = real * view.speed * timeScale(real);
     while (remaining > 1e-6) {
       const step = Math.min(remaining, 1 / 60);
@@ -905,6 +945,7 @@ requestAnimationFrame(frame);
 
 // opening on the Daily tab shows today's board behind the menu (the remembered sector stays selected)
 if (view.mode === 'daily') { view.menuSel = mapDef.id; loadSector(dailyToday().sectorId); }
+else if (view.mode === 'training') { view.menuSel = mapDef.id; loadDef(TUTORIAL); }
 ui.showOverlay('start', menuData());
 refreshTowerLocks();
 
@@ -941,7 +982,7 @@ portraitMq?.addEventListener?.('change', (e) => {
   if (e.matches && view.started && !view.paused && !game.over) ctl.togglePause();
 });
 
-if (new URLSearchParams(location.search).has('debug')) window.VW = { game, view, ctl, ui, renderer, sfx, music };
+if (new URLSearchParams(location.search).has('debug')) window.VW = { game, view, ctl, ui, renderer, sfx, music, tutor };
 
 // Respect the OS "reduce motion" setting (and follow it if it changes mid-session)
 const reduceMq = window.matchMedia?.('(prefers-reduced-motion: reduce)');

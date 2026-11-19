@@ -540,9 +540,9 @@ export class UI {
     if (tot !== this.prev.totalWaves) { e.waveTotal.textContent = tot; this.prev.totalWaves = tot; }
     const tagKey = g.difficulty + g.mode;
     if (tagKey !== this.prev.difficulty) {
-      const d = g.diff, tag = g.mode === 'daily' ? [T('Daily'), g.mut.color || d.color] : [g.endless ? T('Endless · {name}', { name: d.name }) : d.name, d.color];
+      const d = g.diff, tag = g.mode === 'daily' ? [T('Daily'), g.mut.color || d.color] : g.mode === 'tutorial' ? [T('Training'), '#ffb800'] : [g.endless ? T('Endless · {name}', { name: d.name }) : d.name, d.color];
       e.waveNum.closest('.stat').querySelector('label').innerHTML = `${T('Wave')} <span class="diff-tag" style="--c:${tag[1]}">${tag[0]}</span>`;
-      e.scoreStat.hidden = g.mode === 'campaign';
+      e.scoreStat.hidden = g.mode !== 'endless' && g.mode !== 'daily';
       this.prev.difficulty = tagKey;
     }
     if (g.mode !== 'campaign' && g.score !== this.prev.score) {
@@ -720,8 +720,8 @@ export class UI {
       const { maps, records = {}, current, difficulty = 'normal', unlocked = {}, cleared = {} } = data;
       const mode = data.mode || 'campaign', endless = mode === 'endless';
       const D = DIFFICULTIES[difficulty];
-      const tabs = `<div class="mode-tabs" role="tablist">${[['campaign', 'Campaign', 'Ten sectors'], ['endless', 'Endless', 'No last wave'], ['daily', 'Daily', 'Same for everyone']]
-        .map(([k, n, sub]) => `<button class="mt${k === mode ? ' on' : ''}" role="tab" aria-selected="${k === mode}" data-act="mode" data-arg="${k}"><b>${T(n)}</b><span>${T(sub)}</span></button>`).join('')}</div>`;
+      const tabs = `<div class="mode-tabs" role="tablist">${[['training', 'Training', 'Learn the basics'], ['campaign', 'Campaign', 'Ten sectors'], ['endless', 'Endless', 'No last wave'], ['daily', 'Daily', 'Same for everyone']]
+        .map(([k, n, sub]) => `<button class="mt${k === mode ? ' on' : ''}${k === 'training' && data.tutNew ? ' new' : ''}" role="tab" aria-selected="${k === mode}" data-act="mode" data-arg="${k}"><b>${T(n)}</b><span>${T(sub)}</span></button>`).join('')}</div>`;
       // language names stay in their own language
       const langs = `<div class="lang-pick" role="group" aria-label="${T('Language')}">${LANGS.map((l) => `<button class="${l === lang ? 'on' : ''}" data-act="lang" data-arg="${l}" lang="${l}" title="${{ en: 'English', ru: 'Русский' }[l]}">${l.toUpperCase()}</button>`).join('')}</div>`;
       const picker = `<div class="diff-pick">
@@ -730,11 +730,28 @@ export class UI {
         </div>`;
       const accent = (m) => (m.theme && m.theme.ambient && m.theme.ambient[0]) || '#00e5ff';
       const nDone = maps.filter((m) => cleared[m.id]).length;
-      const head = `<div class="camp-head"><span>${T(mode === 'daily' ? 'Daily' : endless ? 'Endless' : 'Campaign')}</span><i class="camp-bar"><i style="width:${(nDone / maps.length) * 100}%"></i></i><b>${T('{n}/{m} sectors secured', { n: nDone, m: maps.length })}</b>
+      const head = `<div class="camp-head"><span>${T(mode === 'daily' ? 'Daily' : mode === 'training' ? 'Training' : endless ? 'Endless' : 'Campaign')}</span><i class="camp-bar"><i style="width:${(nDone / maps.length) * 100}%"></i></i><b>${T('{n}/{m} sectors secured', { n: nDone, m: maps.length })}</b>
           <button class="lab-btn${data.labNew ? ' new' : ''}" data-act="lab"><i class="dt"></i>${T('{n} Data · Research', { n: fmt(data.data ?? 0) })}</button>
           <button class="lab-btn ach-btn" data-act="achievements">★ ${data.ach ? data.ach[0] : 0}/${data.ach ? data.ach[1] : 0}</button></div>`;
       let body;
-      if (mode === 'daily') {
+      if (mode === 'training') {
+        const tm = data.tutorialMap;
+        const lessons = ['Build and deploy', 'Waves and credits', 'Slowing', 'Evolution paths', 'Targeting and selling', 'Armor', 'Firewall and Purge', 'Data caches'];
+        body = `<div class="camp-detail training hudbox" style="--c:#ffb800">
+          <canvas class="s-map big" data-map="${tm.id}" aria-hidden="true"></canvas>
+          <div class="cd-body">
+            <div class="s-top"><span class="s-name">${T('Training')}</span><span class="s-diff">${T(data.tutNew ? 'Start here' : 'Completed')}</span></div>
+            <div class="cd-title">${T('Grid basics')}</div>
+            <div class="s-desc">${T('New to Void Wardens? A coach walks you through every mechanic on a small practice map — one step at a time, at your own pace.')}</div>
+            <div class="tr-lessons">${lessons.map((x) => `<span>${T(x)}</span>`).join('')}</div>
+            <div class="s-meta">${T('About 5 minutes · can\'t be lost · doesn\'t touch your progress')}</div>
+            <div class="cd-foot">
+              <span class="s-rec">${data.tutNew ? '' : `<span>${T('✓ Completed')}</span>`}</span>
+              <button class="btn-primary hudbox cd-go" data-act="start">${T(data.tutNew ? 'Start training ▸' : 'Train again ▸')}</button>
+            </div>
+          </div>
+        </div>`;
+      } else if (mode === 'daily') {
         const d = data.daily, m = d.map, rec = d.rec, mut = d.mut, rule = m.rule && RULES[m.rule];
         const now = new Date(), mid = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
         const left = Math.max(0, mid - now), hh = Math.floor(left / 3600e3), mm = Math.floor((left % 3600e3) / 60e3);
@@ -812,7 +829,7 @@ export class UI {
         <h1 class="ov-title glitch" data-text="VOID//WARDENS">VOID<span class="sl">//</span>WARDENS</h1>
         <p class="ov-tag">${T('A breach has opened in the grid. Hostile code is pouring through. Keep it away from the Core.')}</p>
         ${tabs}
-        ${mode === 'daily' ? '' : picker}
+        ${mode === 'daily' || mode === 'training' ? '' : picker}
         ${head}
         ${body}
         <div class="ov-help">
@@ -897,6 +914,20 @@ export class UI {
         ${data.data ? `<div class="ov-data"><i class="dt"></i>${T('+{n} Data', { n: data.data.earned })} <span>${T('· {n} total', { n: fmt(data.data.total) })}</span></div>` : ''}
         ${again.replace('%s', T('Run it again'))}
         <button class="btn-ghost share" data-act="share">${T('Share score')}</button></div>`;
+    } else if (kind === 'tutorial') {
+      const rows = [
+        ['Campaign', 'Ten sectors, each with its own layout and a rule that changes how it plays. Clear one to open the next; the more Core you keep, the more stars (up to 3).'],
+        ['Medals', 'Every sector has three optional challenges. Win on Normal or harder to earn them — each pays Data.'],
+        ['Research', 'Every run, won or lost, pays Data. Spend it in Research on permanent upgrades.'],
+        ['Arsenal', 'Clearing sectors 03, 06 and 08 adds the Spike Lance, Overclock Hub and Logic Mines.'],
+        ['Endless · Daily', 'Endless never stops — how far can you hold? The Daily is one challenge a day, the same for everyone.'],
+      ];
+      html = `<div class="ov-card win tut-done"><div class="ov-kicker">${T('Training complete')}</div>
+        <h2 class="ov-h2 glitch" data-text="${T('Ready, Warden')}">${T('Ready, Warden')}</h2>
+        <p class="ov-tag">${T('You know the grid. Here is what waits outside it:')}</p>
+        <div class="tut-list">${rows.map(([k, v]) => `<div><b>${T(k)}</b><span>${T(v)}</span></div>`).join('')}</div>
+        <div class="ov-actions"><button class="btn-primary hudbox" data-act="campaign">${T('Start the campaign ▸')}</button>
+          <button class="btn-ghost" data-act="restart">${T('Train again')}</button><button class="btn-ghost" data-act="menu">${T('Sectors')}</button></div></div>`;
     } else if (kind === 'lose') {
       html = `<div class="ov-card lose"><div class="ov-kicker">${data.sector} · ${data.diff.name} · ${T('Core compromised')}</div><h2 class="ov-h2 glitch" data-text="${T('System breached')}">${T('System breached')}</h2>
         <div class="ov-stats"><div><label>${T('Reached')}</label><b>${T('Wave {n}', { n: data.wave })}</b></div><div><label>${T('Kills')}</label><b>${fmt(data.kills)}</b></div></div>
@@ -905,7 +936,7 @@ export class UI {
     }
     o.innerHTML = html;
     o.className = 'overlay show ' + kind;
-    if (kind === 'start') this.startMiniMaps(data.maps || []);
+    if (kind === 'start') this.startMiniMaps([...(data.maps || []), ...(data.tutorialMap ? [data.tutorialMap] : [])]);
   }
 
   hideOverlay() { this.els.overlay.className = 'overlay'; }

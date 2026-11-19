@@ -26,7 +26,7 @@ export class Game {
   constructor(map, difficulty = 'normal') {
     this.map = map;
     this.perks = {}; // permanent research, set by the app before a run (the sim runs without it)
-    // mode: 'campaign' | 'endless' | 'daily'. mutator: a MUTATORS key (Daily twist).
+    // mode: 'campaign' | 'endless' | 'daily' | 'tutorial'. mutator: a MUTATORS key (Daily twist).
     // seed: seeds card draws (Daily) so everyone gets the same hands. Set by the app before reset().
     this.mode = 'campaign';
     this.mutator = null;
@@ -269,7 +269,8 @@ export class Game {
         this.spawn(s.type, s.mult, s.path);
       }
     } else if (this.state === 'break') {
-      if (!this.offer) this.breakTimer -= dt; // the clock waits while a data cache is open
+      // the clock waits while a data cache is open, and while training holds it (the coach calls waves)
+      if (!this.offer && !this.holdBreak) this.breakTimer -= dt;
       if (this.breakTimer <= 0) { this.run.autoStarts++; this.startWave(); }
     }
 
@@ -588,6 +589,7 @@ export class Game {
       this.emit('failsafe');
       this.sfx('purge', C.x);
     }
+    if (this.lives <= 0 && this.mode === 'tutorial') this.lives = 1; // training can't be lost
     if (this.lives <= 0 && this.state !== 'lost') {
       this.state = 'lost';
       this.fx.after(0, () => this.coreExplosion());

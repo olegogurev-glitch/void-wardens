@@ -51,6 +51,21 @@ Measured with sector rules, new malware, campaign towers and upgrade cards. The 
 2. Upload `index.html`, `css/` and `src/` as they are. The game also works inside an `<iframe>`.
 3. Make sure the host doesn't cache `index.html` itself for long. Most hosts revalidate HTML by default. The fingerprinted JS and CSS can be cached forever.
 
+## Training
+
+**Training** is the first tab on the start screen, next to Campaign, Endless and Daily. A new player (no tab picked yet, training never finished) lands on it, and it pulses with an amber dot until it has been finished once; afterwards the menu opens on Campaign. Its panel lists what it teaches, and **Start training** (or Enter) runs a guided lesson on its own small map (`TUTORIAL` in `src/maps.js`: one breach, a U-shaped bus, four short waves). A coach box in the corner of the board explains one mechanic at a time and waits for the player to do it, while amber frames point at the HUD, dock, tower panel or a tile on the board:
+
+1. Breach, data bus and Core · Core integrity · credits
+2. Pick the Photon Blaster and deploy it on the marked tile → run wave 1 → towers fire on their own, kills pay
+3. Wave-clear bonus and calling waves early → ICE Node (slow)
+4. Open the tower panel → choose an evolution path → targeting modes and selling
+5. Wave 2: Trojans and armor → wave 3 swarm: **Firewall** and **System Purge** (time freezes until the player uses each one) → cooldowns
+6. Data cache cards → speed, pause and settings → a final wave on their own (Worms split)
+
+The finish screen sums up what lies outside the training (campaign stars, medals, research, unlockable towers, Endless and Daily) and offers **Start the campaign**.
+
+Training waits for the player: waves start only when the coach asks for one, and the break clock is held. It can't be lost (the Core stops at 1), and it saves no records, stats, achievements or Data. Only `voidwardens.tutorial` is stored, to stop the button pulsing. The steps live in `src/tutorial.js`; each one can wait for a condition (`wait`), finish on one (`done`), step back (`back`), or freeze time mid-wave (`freeze`). The coach points at tiles of the training map, so keep the two in step.
+
 ## Campaign, sectors and difficulty
 
 The start screen is the campaign: ten sectors in order, a difficulty picker, and a detail panel for the selected sector (route preview, threats, record). **Each sector unlocks once the one before it has been cleared on any difficulty**; winning shows the newly opened sector with a **Next sector** button. Your best result is saved in the browser for each sector and difficulty: 1–3 stars for a win (by share of Core integrity left), or the furthest wave reached. `?unlock` opens every sector for testing.
@@ -253,6 +268,7 @@ src/config.js     ← tuning: economy, enemies, towers & upgrade trees
 src/maps.js       ← sectors: routes, waves, starting credits, HP curve
 src/map.js        path math (multi-path), buildable tiles
 src/game.js       simulation (no DOM): waves, targeting, attacks, damage, status effects
+src/tutorial.js   Training: the step-by-step coach, its spotlights and conditions
 src/modes.js      Endless wave generator, Daily seed (sector + twist), seeded PRNG
 src/fx.js         particle / ring / beam / lightning state
 src/render.js     procedural canvas art (palette in PAL at the top): grid, bus, towers, enemies, effects
